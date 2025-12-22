@@ -1,0 +1,2 @@
+smartpy-tezos>=0.19.0
+
