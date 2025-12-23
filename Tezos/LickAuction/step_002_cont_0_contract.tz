@@ -1,0 +1,22 @@
+parameter (or (unit %increment) (int %set_value));
+storage   int;
+code
+  {
+    UNPAIR;     # @parameter : @storage
+    IF_LEFT
+      {
+        DROP;       # @storage
+        # == increment ==
+        # self.data.stored_value += 1 # @storage
+        PUSH int 1; # int : @storage
+        ADD;        # int
+      }
+      {
+        SWAP;       # @storage : @parameter%set_value
+        DROP;       # @parameter%set_value
+        # == set_value ==
+        # self.data.stored_value = value # @parameter%set_value
+      }; # int
+    NIL operation; # list operation : int
+    PAIR;       # pair (list operation) int
+  };

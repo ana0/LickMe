@@ -1,0 +1,28 @@
+Comment...
+ h1: Lick Auction
+Creating contract KT1TezoooozzSmartPyzzSTATiCzzzwwBFA1
+ -> 0
+file LickAuction/step_002_cont_0_storage.tz
+file LickAuction/step_002_cont_0_storage.json
+file LickAuction/step_002_cont_0_storage.py
+file LickAuction/step_002_cont_0_types.py
+file LickAuction/step_002_cont_0_contract.tz contract LickAuction
+file LickAuction/step_002_cont_0_contract.json contract LickAuction
+Comment...
+ h2: Set Value
+file LickAuction/step_004_cont_0_params.py
+file LickAuction/step_004_cont_0_params.tz
+file LickAuction/step_004_cont_0_params.json
+Executing set_value(42)...
+ -> 42
+Verifying sp.contract_data(0).stored_value == 42...
+ OK
+Comment...
+ h2: Increment
+file LickAuction/step_007_cont_0_params.py
+file LickAuction/step_007_cont_0_params.tz
+file LickAuction/step_007_cont_0_params.json
+Executing increment(())...
+ -> 43
+Verifying sp.contract_data(0).stored_value == 43...
+ OK
