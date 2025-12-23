@@ -1,0 +1,1 @@
+sp.record(admin = sp.address('tz1SfRoaCkrBkXqTzhz67QYVPJAU9Y2g48kq'), artworks = {})

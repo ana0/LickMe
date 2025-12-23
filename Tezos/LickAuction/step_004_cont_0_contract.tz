@@ -1,0 +1,155 @@
+parameter (or (string %add_artwork) (or (string %pay_for_artwork) (address %update_admin)));
+storage   (pair (address %admin) (map %artworks string (map timestamp mutez)));
+code
+  {
+    UNPAIR;     # @parameter : @storage
+    IF_LEFT
+      {
+        # == add_artwork ==
+        # assert sp.sender == self.data.admin # @parameter%add_artwork : @storage
+        DUP 2;      # @storage : @parameter%add_artwork : @storage
+        CAR;        # address : @parameter%add_artwork : @storage
+        SENDER;     # @sender : address : @parameter%add_artwork : @storage
+        COMPARE;    # int : @parameter%add_artwork : @storage
+        EQ;         # bool : @parameter%add_artwork : @storage
+        IF
+          {}
+          {
+            PUSH string "Assert failure: sp.sender == self.data.admin"; # string : @parameter%add_artwork : @storage
+            FAILWITH;   # FAILED
+          }; # @parameter%add_artwork : @storage
+        SWAP;       # @storage : @parameter%add_artwork
+        # self.data.artworks[artwork_id] = {} # @storage : @parameter%add_artwork
+        DUP;        # @storage : @storage : @parameter%add_artwork
+        CDR;        # map string (map timestamp mutez) : @storage : @parameter%add_artwork
+        PUSH (option (map timestamp mutez)) (Some {}); # option (map timestamp mutez) : map string (map timestamp mutez) : @storage : @parameter%add_artwork
+        DIG 3;      # @parameter%add_artwork : option (map timestamp mutez) : map string (map timestamp mutez) : @storage
+        UPDATE;     # map string (map timestamp mutez) : @storage
+        UPDATE 2;   # @storage
+      }
+      {
+        IF_LEFT
+          {
+            # == pay_for_artwork ==
+            # assert sp.amount > sp.mutez(0) # @parameter%pay_for_artwork : @storage
+            PUSH mutez 0; # mutez : @parameter%pay_for_artwork : @storage
+            AMOUNT;     # @amount : mutez : @parameter%pay_for_artwork : @storage
+            COMPARE;    # int : @parameter%pay_for_artwork : @storage
+            GT;         # bool : @parameter%pay_for_artwork : @storage
+            IF
+              {}
+              {
+                PUSH string "Assert failure: sp.amount > sp.tez(0)"; # string : @parameter%pay_for_artwork : @storage
+                FAILWITH;   # FAILED
+              }; # @parameter%pay_for_artwork : @storage
+            # assert self.data.artworks.contains(artwork_id) # @parameter%pay_for_artwork : @storage
+            DUP 2;      # @storage : @parameter%pay_for_artwork : @storage
+            CDR;        # map string (map timestamp mutez) : @parameter%pay_for_artwork : @storage
+            DUP 2;      # @parameter%pay_for_artwork : map string (map timestamp mutez) : @parameter%pay_for_artwork : @storage
+            MEM;        # bool : @parameter%pay_for_artwork : @storage
+            IF
+              {}
+              {
+                PUSH string "Assert failure: self.data.artworks.contains(params)"; # string : @parameter%pay_for_artwork : @storage
+                FAILWITH;   # FAILED
+              }; # @parameter%pay_for_artwork : @storage
+            # ts = sp.now  # current timestamp # @parameter%pay_for_artwork : @storage
+            NOW;        # @now : @parameter%pay_for_artwork : @storage
+            # if self.data.artworks[artwork_id].contains(ts): # @now : @parameter%pay_for_artwork : @storage
+            DUP 3;      # @storage : @now : @parameter%pay_for_artwork : @storage
+            CDR;        # map string (map timestamp mutez) : @now : @parameter%pay_for_artwork : @storage
+            DUP 3;      # @parameter%pay_for_artwork : map string (map timestamp mutez) : @now : @parameter%pay_for_artwork : @storage
+            GET;        # option (map timestamp mutez) : @now : @parameter%pay_for_artwork : @storage
+            IF_NONE
+              {
+                PUSH int 45; # int : @now : @parameter%pay_for_artwork : @storage
+                FAILWITH;   # FAILED
+              }
+              {}; # @some : @now : @parameter%pay_for_artwork : @storage
+            DUP 2;      # @now : @some : @now : @parameter%pay_for_artwork : @storage
+            MEM;        # bool : @now : @parameter%pay_for_artwork : @storage
+            IF
+              {
+                # self.data.artworks[artwork_id][ts] += sp.amount # @now : @parameter%pay_for_artwork : @storage
+                DIG 2;      # @storage : @now : @parameter%pay_for_artwork
+                DUP;        # @storage : @storage : @now : @parameter%pay_for_artwork
+                CDR;        # map string (map timestamp mutez) : @storage : @now : @parameter%pay_for_artwork
+                DUP;        # map string (map timestamp mutez) : map string (map timestamp mutez) : @storage : @now : @parameter%pay_for_artwork
+                DIG 4;      # @parameter%pay_for_artwork : map string (map timestamp mutez) : map string (map timestamp mutez) : @storage : @now
+                DUP;        # @parameter%pay_for_artwork : @parameter%pay_for_artwork : map string (map timestamp mutez) : map string (map timestamp mutez) : @storage : @now
+                DUG 2;      # @parameter%pay_for_artwork : map string (map timestamp mutez) : @parameter%pay_for_artwork : map string (map timestamp mutez) : @storage : @now
+                GET;        # option (map timestamp mutez) : @parameter%pay_for_artwork : map string (map timestamp mutez) : @storage : @now
+                IF_NONE
+                  {
+                    PUSH int 46; # int : @parameter%pay_for_artwork : map string (map timestamp mutez) : @storage : @now
+                    FAILWITH;   # FAILED
+                  }
+                  {}; # @some : @parameter%pay_for_artwork : map string (map timestamp mutez) : @storage : @now
+                DUP;        # @some : @some : @parameter%pay_for_artwork : map string (map timestamp mutez) : @storage : @now
+                DIG 5;      # @now : @some : @some : @parameter%pay_for_artwork : map string (map timestamp mutez) : @storage
+                DUP;        # @now : @now : @some : @some : @parameter%pay_for_artwork : map string (map timestamp mutez) : @storage
+                DUG 2;      # @now : @some : @now : @some : @parameter%pay_for_artwork : map string (map timestamp mutez) : @storage
+                GET;        # option mutez : @now : @some : @parameter%pay_for_artwork : map string (map timestamp mutez) : @storage
+                IF_NONE
+                  {
+                    PUSH int 46; # int : @now : @some : @parameter%pay_for_artwork : map string (map timestamp mutez) : @storage
+                    FAILWITH;   # FAILED
+                  }
+                  {}; # @some : @now : @some : @parameter%pay_for_artwork : map string (map timestamp mutez) : @storage
+                AMOUNT;     # @amount : @some : @now : @some : @parameter%pay_for_artwork : map string (map timestamp mutez) : @storage
+                ADD;        # mutez : @now : @some : @parameter%pay_for_artwork : map string (map timestamp mutez) : @storage
+                SOME;       # option mutez : @now : @some : @parameter%pay_for_artwork : map string (map timestamp mutez) : @storage
+                SWAP;       # @now : option mutez : @some : @parameter%pay_for_artwork : map string (map timestamp mutez) : @storage
+                UPDATE;     # map timestamp mutez : @parameter%pay_for_artwork : map string (map timestamp mutez) : @storage
+                SOME;       # option (map timestamp mutez) : @parameter%pay_for_artwork : map string (map timestamp mutez) : @storage
+                SWAP;       # @parameter%pay_for_artwork : option (map timestamp mutez) : map string (map timestamp mutez) : @storage
+                UPDATE;     # map string (map timestamp mutez) : @storage
+                UPDATE 2;   # @storage
+              }
+              {
+                # self.data.artworks[artwork_id][ts] = sp.amount # @now : @parameter%pay_for_artwork : @storage
+                DIG 2;      # @storage : @now : @parameter%pay_for_artwork
+                DUP;        # @storage : @storage : @now : @parameter%pay_for_artwork
+                CDR;        # map string (map timestamp mutez) : @storage : @now : @parameter%pay_for_artwork
+                DUP;        # map string (map timestamp mutez) : map string (map timestamp mutez) : @storage : @now : @parameter%pay_for_artwork
+                DIG 4;      # @parameter%pay_for_artwork : map string (map timestamp mutez) : map string (map timestamp mutez) : @storage : @now
+                DUP;        # @parameter%pay_for_artwork : @parameter%pay_for_artwork : map string (map timestamp mutez) : map string (map timestamp mutez) : @storage : @now
+                DUG 2;      # @parameter%pay_for_artwork : map string (map timestamp mutez) : @parameter%pay_for_artwork : map string (map timestamp mutez) : @storage : @now
+                GET;        # option (map timestamp mutez) : @parameter%pay_for_artwork : map string (map timestamp mutez) : @storage : @now
+                IF_NONE
+                  {
+                    PUSH int 48; # int : @parameter%pay_for_artwork : map string (map timestamp mutez) : @storage : @now
+                    FAILWITH;   # FAILED
+                  }
+                  {}; # @some : @parameter%pay_for_artwork : map string (map timestamp mutez) : @storage : @now
+                AMOUNT;     # @amount : @some : @parameter%pay_for_artwork : map string (map timestamp mutez) : @storage : @now
+                SOME;       # option mutez : @some : @parameter%pay_for_artwork : map string (map timestamp mutez) : @storage : @now
+                DIG 5;      # @now : option mutez : @some : @parameter%pay_for_artwork : map string (map timestamp mutez) : @storage
+                UPDATE;     # map timestamp mutez : @parameter%pay_for_artwork : map string (map timestamp mutez) : @storage
+                SOME;       # option (map timestamp mutez) : @parameter%pay_for_artwork : map string (map timestamp mutez) : @storage
+                SWAP;       # @parameter%pay_for_artwork : option (map timestamp mutez) : map string (map timestamp mutez) : @storage
+                UPDATE;     # map string (map timestamp mutez) : @storage
+                UPDATE 2;   # @storage
+              }; # @storage
+          }
+          {
+            # == update_admin ==
+            # assert sp.sender == self.data.admin # @parameter%update_admin : @storage
+            DUP 2;      # @storage : @parameter%update_admin : @storage
+            CAR;        # address : @parameter%update_admin : @storage
+            SENDER;     # @sender : address : @parameter%update_admin : @storage
+            COMPARE;    # int : @parameter%update_admin : @storage
+            EQ;         # bool : @parameter%update_admin : @storage
+            IF
+              {}
+              {
+                PUSH string "Assert failure: sp.sender == self.data.admin"; # string : @parameter%update_admin : @storage
+                FAILWITH;   # FAILED
+              }; # @parameter%update_admin : @storage
+            # self.data.admin = new_admin # @parameter%update_admin : @storage
+            UPDATE 1;   # @storage
+          }; # @storage
+      }; # @storage
+    NIL operation; # list operation : @storage
+    PAIR;       # pair (list operation) @storage
+  };
