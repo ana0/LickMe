@@ -1,28 +1,21 @@
 Comment...
  h1: Lick Auction
 Creating contract KT1TezoooozzSmartPyzzSTATiCzzzwwBFA1
- -> 0
-file LickAuction/step_002_cont_0_storage.tz
-file LickAuction/step_002_cont_0_storage.json
-file LickAuction/step_002_cont_0_storage.py
-file LickAuction/step_002_cont_0_types.py
-file LickAuction/step_002_cont_0_contract.tz contract LickAuction
-file LickAuction/step_002_cont_0_contract.json contract LickAuction
+ -> (Pair "tz1SfRoaCkrBkXqTzhz67QYVPJAU9Y2g48kq" {})
+file LickAuction/step_003_cont_0_storage.tz
+file LickAuction/step_003_cont_0_storage.json
+file LickAuction/step_003_cont_0_storage.py
+file LickAuction/step_003_cont_0_types.py
+file LickAuction/step_003_cont_0_contract.tz contract LickAuction
+file LickAuction/step_003_cont_0_contract.json contract LickAuction
 Comment...
- h2: Set Value
-file LickAuction/step_004_cont_0_params.py
-file LickAuction/step_004_cont_0_params.tz
-file LickAuction/step_004_cont_0_params.json
-Executing set_value(42)...
- -> 42
-Verifying sp.contract_data(0).stored_value == 42...
+ h2: Initial admin
+Verifying sp.contract_data(0).admin == sp.test_account("Admin").address...
  OK
 Comment...
- h2: Increment
+ h2: Add artwork (admin)
 file LickAuction/step_007_cont_0_params.py
 file LickAuction/step_007_cont_0_params.tz
 file LickAuction/step_007_cont_0_params.json
-Executing increment(())...
- -> 43
-Verifying sp.contract_data(0).stored_value == 43...
- OK
+Executing add_artwork('artwork-1')...
+ -> (Pair "tz1SfRoaCkrBkXqTzhz67QYVPJAU9Y2g48kq" {Elt "artwork-1" {}})

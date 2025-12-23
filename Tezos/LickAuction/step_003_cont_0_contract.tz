@@ -1,0 +1,49 @@
+parameter (or (string %add_artwork) (address %update_admin));
+storage   (pair (address %admin) (map %artworks string (map int int)));
+code
+  {
+    UNPAIR;     # @parameter : @storage
+    IF_LEFT
+      {
+        # == add_artwork ==
+        # assert sp.sender == self.data.admin # @parameter%add_artwork : @storage
+        DUP 2;      # @storage : @parameter%add_artwork : @storage
+        CAR;        # address : @parameter%add_artwork : @storage
+        SENDER;     # @sender : address : @parameter%add_artwork : @storage
+        COMPARE;    # int : @parameter%add_artwork : @storage
+        EQ;         # bool : @parameter%add_artwork : @storage
+        IF
+          {}
+          {
+            PUSH string "Assert failure: sp.sender == self.data.admin"; # string : @parameter%add_artwork : @storage
+            FAILWITH;   # FAILED
+          }; # @parameter%add_artwork : @storage
+        SWAP;       # @storage : @parameter%add_artwork
+        # self.data.artworks[artwork_id] = {} # @storage : @parameter%add_artwork
+        DUP;        # @storage : @storage : @parameter%add_artwork
+        CDR;        # map string (map int int) : @storage : @parameter%add_artwork
+        PUSH (option (map int int)) (Some {}); # option (map int int) : map string (map int int) : @storage : @parameter%add_artwork
+        DIG 3;      # @parameter%add_artwork : option (map int int) : map string (map int int) : @storage
+        UPDATE;     # map string (map int int) : @storage
+        UPDATE 2;   # @storage
+      }
+      {
+        # == update_admin ==
+        # assert sp.sender == self.data.admin # @parameter%update_admin : @storage
+        DUP 2;      # @storage : @parameter%update_admin : @storage
+        CAR;        # address : @parameter%update_admin : @storage
+        SENDER;     # @sender : address : @parameter%update_admin : @storage
+        COMPARE;    # int : @parameter%update_admin : @storage
+        EQ;         # bool : @parameter%update_admin : @storage
+        IF
+          {}
+          {
+            PUSH string "Assert failure: sp.sender == self.data.admin"; # string : @parameter%update_admin : @storage
+            FAILWITH;   # FAILED
+          }; # @parameter%update_admin : @storage
+        # self.data.admin = new_admin # @parameter%update_admin : @storage
+        UPDATE 1;   # @storage
+      }; # @storage
+    NIL operation; # list operation : @storage
+    PAIR;       # pair (list operation) @storage
+  };
