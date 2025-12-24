@@ -1,28 +1,150 @@
 Comment...
  h1: Lick Auction
 Creating contract KT1TezoooozzSmartPyzzSTATiCzzzwwBFA1
- -> (Pair "tz1SfRoaCkrBkXqTzhz67QYVPJAU9Y2g48kq" {})
-file LickAuction/step_004_cont_0_storage.tz
-file LickAuction/step_004_cont_0_storage.json
-file LickAuction/step_004_cont_0_storage.py
-file LickAuction/step_004_cont_0_types.py
-file LickAuction/step_004_cont_0_contract.tz contract LickAuction
-file LickAuction/step_004_cont_0_contract.json contract LickAuction
+ -> (Pair "tz1SfRoaCkrBkXqTzhz67QYVPJAU9Y2g48kq" (Pair {} {}))
+file LickAuction/step_006_cont_0_storage.tz
+file LickAuction/step_006_cont_0_storage.json
+file LickAuction/step_006_cont_0_storage.py
+file LickAuction/step_006_cont_0_types.py
+file LickAuction/step_006_cont_0_contract.tz contract LickAuction
+file LickAuction/step_006_cont_0_contract.json contract LickAuction
 Comment...
  h2: Initial admin
 Verifying sp.contract_data(0).admin == sp.test_account("Admin").address...
  OK
 Comment...
  h2: Add artwork (admin)
-file LickAuction/step_008_cont_0_params.py
-file LickAuction/step_008_cont_0_params.tz
-file LickAuction/step_008_cont_0_params.json
-Executing add_artwork('artwork-1')...
- -> (Pair "tz1SfRoaCkrBkXqTzhz67QYVPJAU9Y2g48kq" {Elt "artwork-1" {}})
-Comment...
- h2: Pay for artwork
 file LickAuction/step_010_cont_0_params.py
 file LickAuction/step_010_cont_0_params.tz
 file LickAuction/step_010_cont_0_params.json
+Executing add_artwork('artwork-1')...
+ -> (Pair "tz1SfRoaCkrBkXqTzhz67QYVPJAU9Y2g48kq" (Pair {Elt "artwork-1" {}} {}))
+Comment...
+ h2: Add artwork (non-admin) - should fail
+file LickAuction/step_012_cont_0_params.py
+file LickAuction/step_012_cont_0_params.tz
+file LickAuction/step_012_cont_0_params.json
+Executing add_artwork('artwork-2')...
+Expected error: 'Assert failure: sp.sender == self.data.admin'
+Comment...
+ h2: Pay for artwork
+file LickAuction/step_014_cont_0_params.py
+file LickAuction/step_014_cont_0_params.tz
+file LickAuction/step_014_cont_0_params.json
 Executing pay_for_artwork('artwork-1')...
- -> (Pair "tz1SfRoaCkrBkXqTzhz67QYVPJAU9Y2g48kq" {Elt "artwork-1" {Elt "1970-01-01T00:00:00Z" 1000000}})
+ -> (Pair "tz1SfRoaCkrBkXqTzhz67QYVPJAU9Y2g48kq" (Pair {Elt "artwork-1" {}} {Elt "artwork-1" (Pair 1000000 "1970-01-01T00:00:00Z")}))
+Verifying sp.contract_data(0).pending['artwork-1'].amount == sp.tez(1)...
+ OK
+Comment...
+ h2: Multiple payments at same timestamp - should accumulate
+file LickAuction/step_017_cont_0_params.py
+file LickAuction/step_017_cont_0_params.tz
+file LickAuction/step_017_cont_0_params.json
+Executing pay_for_artwork('artwork-1')...
+ -> (Pair "tz1SfRoaCkrBkXqTzhz67QYVPJAU9Y2g48kq" (Pair {Elt "artwork-1" {}} {Elt "artwork-1" (Pair 3000000 "1970-01-01T00:00:00Z")}))
+Verifying sp.contract_data(0).pending['artwork-1'].amount == sp.tez(3)...
+ OK
+Comment...
+ h2: Payment at different timestamp
+file LickAuction/step_020_cont_0_params.py
+file LickAuction/step_020_cont_0_params.tz
+file LickAuction/step_020_cont_0_params.json
+Executing pay_for_artwork('artwork-1')...
+ -> (Pair "tz1SfRoaCkrBkXqTzhz67QYVPJAU9Y2g48kq" (Pair {Elt "artwork-1" {Pair 3000000 "1970-01-01T00:00:00Z"}} {Elt "artwork-1" (Pair 5000000 "1970-01-01T00:01:40Z")}))
+Verifying sp.contract_data(0).pending['artwork-1'].amount == sp.tez(5)...
+ OK
+Verifying sp.len(sp.contract_data(0).artworks['artwork-1']) == 1...
+ OK
+file LickAuction/step_023_cont_0_params.py
+file LickAuction/step_023_cont_0_params.tz
+file LickAuction/step_023_cont_0_params.json
+Executing pay_for_artwork('artwork-1')...
+ -> (Pair "tz1SfRoaCkrBkXqTzhz67QYVPJAU9Y2g48kq" (Pair {Elt "artwork-1" {Pair 5000000 "1970-01-01T00:01:40Z"; Pair 3000000 "1970-01-01T00:00:00Z"}} {Elt "artwork-1" (Pair 2000000 "1970-01-01T00:03:20Z")}))
+Verifying sp.contract_data(0).pending['artwork-1'].amount == sp.tez(2)...
+ OK
+Verifying sp.len(sp.contract_data(0).artworks['artwork-1']) == 2...
+ OK
+Comment...
+ h2: Pay for non-existent artwork - should fail
+file LickAuction/step_027_cont_0_params.py
+file LickAuction/step_027_cont_0_params.tz
+file LickAuction/step_027_cont_0_params.json
+Executing pay_for_artwork('artwork-999')...
+Expected error: 'Assert failure: self.data.artworks.contains(params)'
+Comment...
+ h2: Pay with zero amount - should fail
+file LickAuction/step_029_cont_0_params.py
+file LickAuction/step_029_cont_0_params.tz
+file LickAuction/step_029_cont_0_params.json
+Executing pay_for_artwork('artwork-1')...
+Expected error: 'Assert failure: sp.amount > sp.tez(0)'
+Comment...
+ h2: Update admin (non-admin) - should fail
+file LickAuction/step_031_cont_0_params.py
+file LickAuction/step_031_cont_0_params.tz
+file LickAuction/step_031_cont_0_params.json
+Executing update_admin(sp.address('tz1NEZJHQq3qXWUZ1hHMSLuciXBbe8jJKGY9'))...
+Expected error: 'Assert failure: sp.sender == self.data.admin'
+Comment...
+ h2: Update admin (admin)
+file LickAuction/step_033_cont_0_params.py
+file LickAuction/step_033_cont_0_params.tz
+file LickAuction/step_033_cont_0_params.json
+Executing update_admin(sp.address('tz1SzJUYNANEyZPPGhSgQY2ZfsMnhZqptWi9'))...
+ -> (Pair "tz1SzJUYNANEyZPPGhSgQY2ZfsMnhZqptWi9" (Pair {Elt "artwork-1" {Pair 5000000 "1970-01-01T00:01:40Z"; Pair 3000000 "1970-01-01T00:00:00Z"}} {Elt "artwork-1" (Pair 2000000 "1970-01-01T00:03:20Z")}))
+Verifying sp.contract_data(0).admin == sp.test_account("NewAdmin").address...
+ OK
+Comment...
+ h2: Old admin cannot add artwork after transfer
+file LickAuction/step_036_cont_0_params.py
+file LickAuction/step_036_cont_0_params.tz
+file LickAuction/step_036_cont_0_params.json
+Executing add_artwork('artwork-3')...
+Expected error: 'Assert failure: sp.sender == self.data.admin'
+Comment...
+ h2: New admin can add artwork
+file LickAuction/step_038_cont_0_params.py
+file LickAuction/step_038_cont_0_params.tz
+file LickAuction/step_038_cont_0_params.json
+Executing add_artwork('artwork-3')...
+ -> (Pair "tz1SzJUYNANEyZPPGhSgQY2ZfsMnhZqptWi9" (Pair {Elt "artwork-1" {Pair 5000000 "1970-01-01T00:01:40Z"; Pair 3000000 "1970-01-01T00:00:00Z"}; Elt "artwork-3" {}} {Elt "artwork-1" (Pair 2000000 "1970-01-01T00:03:20Z")}))
+Comment...
+ h2: Withdraw (non-admin) - should fail
+file LickAuction/step_040_cont_0_params.py
+file LickAuction/step_040_cont_0_params.tz
+file LickAuction/step_040_cont_0_params.json
+Executing withdraw(())...
+Expected error: 'Assert failure: sp.sender == self.data.admin'
+Comment...
+ h2: Withdraw (admin)
+file LickAuction/step_042_cont_0_params.py
+file LickAuction/step_042_cont_0_params.tz
+file LickAuction/step_042_cont_0_params.json
+Executing pay_for_artwork('artwork-3')...
+ -> (Pair "tz1SzJUYNANEyZPPGhSgQY2ZfsMnhZqptWi9" (Pair {Elt "artwork-1" {Pair 5000000 "1970-01-01T00:01:40Z"; Pair 3000000 "1970-01-01T00:00:00Z"}; Elt "artwork-3" {}} {Elt "artwork-1" (Pair 2000000 "1970-01-01T00:03:20Z"); Elt "artwork-3" (Pair 10000000 "1970-01-01T00:05:00Z")}))
+Verifying sp.contract_balance(0) == sp.tez(20)...
+ OK
+file LickAuction/step_044_cont_0_params.py
+file LickAuction/step_044_cont_0_params.tz
+file LickAuction/step_044_cont_0_params.json
+Executing withdraw(())...
+ -> (Pair "tz1SzJUYNANEyZPPGhSgQY2ZfsMnhZqptWi9" (Pair {Elt "artwork-1" {Pair 5000000 "1970-01-01T00:01:40Z"; Pair 3000000 "1970-01-01T00:00:00Z"}; Elt "artwork-3" {}} {Elt "artwork-1" (Pair 2000000 "1970-01-01T00:03:20Z"); Elt "artwork-3" (Pair 10000000 "1970-01-01T00:05:00Z")}))
+  + Transfer
+     params: ()
+     amount: sp.tez(20)
+     to:     sp.contract(sp.unit, sp.address('tz1SzJUYNANEyZPPGhSgQY2ZfsMnhZqptWi9')).open_some()
+Verifying sp.contract_balance(0) == sp.tez(0)...
+ OK
+Comment...
+ h2: Withdraw with zero balance
+file LickAuction/step_047_cont_0_params.py
+file LickAuction/step_047_cont_0_params.tz
+file LickAuction/step_047_cont_0_params.json
+Executing withdraw(())...
+ -> (Pair "tz1SzJUYNANEyZPPGhSgQY2ZfsMnhZqptWi9" (Pair {Elt "artwork-1" {Pair 5000000 "1970-01-01T00:01:40Z"; Pair 3000000 "1970-01-01T00:00:00Z"}; Elt "artwork-3" {}} {Elt "artwork-1" (Pair 2000000 "1970-01-01T00:03:20Z"); Elt "artwork-3" (Pair 10000000 "1970-01-01T00:05:00Z")}))
+  + Transfer
+     params: ()
+     amount: sp.tez(0)
+     to:     sp.contract(sp.unit, sp.address('tz1SzJUYNANEyZPPGhSgQY2ZfsMnhZqptWi9')).open_some()
+Verifying sp.contract_balance(0) == sp.tez(0)...
+ OK

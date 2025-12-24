@@ -34,8 +34,8 @@
       {
         "prim": "or",
         "args": [
-          { "prim": "string", "annots": [ "%add_artwork" ] },
-          { "prim": "or", "args": [ { "prim": "string", "annots": [ "%pay_for_artwork" ] }, { "prim": "address", "annots": [ "%update_admin" ] } ] }
+          { "prim": "or", "args": [ { "prim": "string", "annots": [ "%add_artwork" ] }, { "prim": "string", "annots": [ "%pay_for_artwork" ] } ] },
+          { "prim": "or", "args": [ { "prim": "address", "annots": [ "%update_admin" ] }, { "prim": "unit", "annots": [ "%withdraw" ] } ] }
         ]
       }
     ]
@@ -49,33 +49,35 @@
           "prim": "IF_LEFT",
           "args": [
             [
-              { "prim": "DUP", "args": [ { "int": "2" } ] },
-              { "prim": "CAR" },
-              { "prim": "SENDER" },
-              { "prim": "COMPARE" },
-              { "prim": "EQ" },
-              {
-                "prim": "IF",
-                "args": [ [], [ { "prim": "PUSH", "args": [ { "prim": "string" }, { "string": "Assert failure: sp.sender == self.data.admin" } ] }, { "prim": "FAILWITH" } ] ]
-              },
-              { "prim": "SWAP" },
-              { "prim": "DUP" },
-              { "prim": "GET", "args": [ { "int": "3" } ] },
-              {
-                "prim": "PUSH",
-                "args": [
-                  { "prim": "option", "args": [ { "prim": "list", "args": [ { "prim": "pair", "args": [ { "prim": "mutez" }, { "prim": "timestamp" } ] } ] } ] },
-                  { "prim": "Some", "args": [ [] ] }
-                ]
-              },
-              { "prim": "DIG", "args": [ { "int": "3" } ] },
-              { "prim": "UPDATE" },
-              { "prim": "UPDATE", "args": [ { "int": "3" } ] }
-            ],
-            [
               {
                 "prim": "IF_LEFT",
                 "args": [
+                  [
+                    { "prim": "DUP", "args": [ { "int": "2" } ] },
+                    { "prim": "CAR" },
+                    { "prim": "SENDER" },
+                    { "prim": "COMPARE" },
+                    { "prim": "EQ" },
+                    {
+                      "prim": "IF",
+                      "args": [
+                        [], [ { "prim": "PUSH", "args": [ { "prim": "string" }, { "string": "Assert failure: sp.sender == self.data.admin" } ] }, { "prim": "FAILWITH" } ]
+                      ]
+                    },
+                    { "prim": "SWAP" },
+                    { "prim": "DUP" },
+                    { "prim": "GET", "args": [ { "int": "3" } ] },
+                    {
+                      "prim": "PUSH",
+                      "args": [
+                        { "prim": "option", "args": [ { "prim": "list", "args": [ { "prim": "pair", "args": [ { "prim": "mutez" }, { "prim": "timestamp" } ] } ] } ] },
+                        { "prim": "Some", "args": [ [] ] }
+                      ]
+                    },
+                    { "prim": "DIG", "args": [ { "int": "3" } ] },
+                    { "prim": "UPDATE" },
+                    { "prim": "UPDATE", "args": [ { "int": "3" } ] }
+                  ],
                   [
                     { "prim": "PUSH", "args": [ { "prim": "mutez" }, { "int": "0" } ] },
                     { "prim": "AMOUNT" },
@@ -174,7 +176,15 @@
                         ]
                       ]
                     }
-                  ],
+                  ]
+                ]
+              },
+              { "prim": "NIL", "args": [ { "prim": "operation" } ] }
+            ],
+            [
+              {
+                "prim": "IF_LEFT",
+                "args": [
                   [
                     { "prim": "DUP", "args": [ { "int": "2" } ] },
                     { "prim": "CAR" },
@@ -187,14 +197,37 @@
                         [], [ { "prim": "PUSH", "args": [ { "prim": "string" }, { "string": "Assert failure: sp.sender == self.data.admin" } ] }, { "prim": "FAILWITH" } ]
                       ]
                     },
-                    { "prim": "UPDATE", "args": [ { "int": "1" } ] }
+                    { "prim": "UPDATE", "args": [ { "int": "1" } ] },
+                    { "prim": "NIL", "args": [ { "prim": "operation" } ] }
+                  ],
+                  [
+                    { "prim": "DROP" },
+                    { "prim": "DUP" },
+                    { "prim": "CAR" },
+                    { "prim": "SENDER" },
+                    { "prim": "COMPARE" },
+                    { "prim": "EQ" },
+                    {
+                      "prim": "IF",
+                      "args": [
+                        [], [ { "prim": "PUSH", "args": [ { "prim": "string" }, { "string": "Assert failure: sp.sender == self.data.admin" } ] }, { "prim": "FAILWITH" } ]
+                      ]
+                    },
+                    { "prim": "NIL", "args": [ { "prim": "operation" } ] },
+                    { "prim": "DUP", "args": [ { "int": "2" } ] },
+                    { "prim": "CAR" },
+                    { "prim": "CONTRACT", "args": [ { "prim": "unit" } ] },
+                    { "prim": "IF_NONE", "args": [ [ { "prim": "PUSH", "args": [ { "prim": "int" }, { "int": "86" } ] }, { "prim": "FAILWITH" } ], [] ] },
+                    { "prim": "BALANCE" },
+                    { "prim": "UNIT" },
+                    { "prim": "TRANSFER_TOKENS" },
+                    { "prim": "CONS" }
                   ]
                 ]
               }
             ]
           ]
         },
-        { "prim": "NIL", "args": [ { "prim": "operation" } ] },
         { "prim": "PAIR" }
       ]
     ]

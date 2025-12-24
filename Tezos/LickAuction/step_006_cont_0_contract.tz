@@ -1,34 +1,34 @@
-parameter (or (string %add_artwork) (or (string %pay_for_artwork) (address %update_admin)));
+parameter (or (or (string %add_artwork) (string %pay_for_artwork)) (or (address %update_admin) (unit %withdraw)));
 storage   (pair (address %admin) (pair (map %artworks string (list (pair (mutez %amount) (timestamp %timestamp)))) (map %pending string (pair (mutez %amount) (timestamp %timestamp)))));
 code
   {
     UNPAIR;     # @parameter : @storage
     IF_LEFT
       {
-        # == add_artwork ==
-        # assert sp.sender == self.data.admin # @parameter%add_artwork : @storage
-        DUP 2;      # @storage : @parameter%add_artwork : @storage
-        CAR;        # address : @parameter%add_artwork : @storage
-        SENDER;     # @sender : address : @parameter%add_artwork : @storage
-        COMPARE;    # int : @parameter%add_artwork : @storage
-        EQ;         # bool : @parameter%add_artwork : @storage
-        IF
-          {}
-          {
-            PUSH string "Assert failure: sp.sender == self.data.admin"; # string : @parameter%add_artwork : @storage
-            FAILWITH;   # FAILED
-          }; # @parameter%add_artwork : @storage
-        SWAP;       # @storage : @parameter%add_artwork
-        # self.data.artworks[artwork_id] = [] # @storage : @parameter%add_artwork
-        DUP;        # @storage : @storage : @parameter%add_artwork
-        GET 3;      # map string (list (pair (mutez %amount) (timestamp %timestamp))) : @storage : @parameter%add_artwork
-        PUSH (option (list (pair mutez timestamp))) (Some {}); # option (list (pair mutez timestamp)) : map string (list (pair (mutez %amount) (timestamp %timestamp))) : @storage : @parameter%add_artwork
-        DIG 3;      # @parameter%add_artwork : option (list (pair mutez timestamp)) : map string (list (pair (mutez %amount) (timestamp %timestamp))) : @storage
-        UPDATE;     # map string (list (pair mutez timestamp)) : @storage
-        UPDATE 3;   # @storage
-      }
-      {
         IF_LEFT
+          {
+            # == add_artwork ==
+            # assert sp.sender == self.data.admin # @parameter%add_artwork : @storage
+            DUP 2;      # @storage : @parameter%add_artwork : @storage
+            CAR;        # address : @parameter%add_artwork : @storage
+            SENDER;     # @sender : address : @parameter%add_artwork : @storage
+            COMPARE;    # int : @parameter%add_artwork : @storage
+            EQ;         # bool : @parameter%add_artwork : @storage
+            IF
+              {}
+              {
+                PUSH string "Assert failure: sp.sender == self.data.admin"; # string : @parameter%add_artwork : @storage
+                FAILWITH;   # FAILED
+              }; # @parameter%add_artwork : @storage
+            SWAP;       # @storage : @parameter%add_artwork
+            # self.data.artworks[artwork_id] = [] # @storage : @parameter%add_artwork
+            DUP;        # @storage : @storage : @parameter%add_artwork
+            GET 3;      # map string (list (pair (mutez %amount) (timestamp %timestamp))) : @storage : @parameter%add_artwork
+            PUSH (option (list (pair mutez timestamp))) (Some {}); # option (list (pair mutez timestamp)) : map string (list (pair (mutez %amount) (timestamp %timestamp))) : @storage : @parameter%add_artwork
+            DIG 3;      # @parameter%add_artwork : option (list (pair mutez timestamp)) : map string (list (pair (mutez %amount) (timestamp %timestamp))) : @storage
+            UPDATE;     # map string (list (pair mutez timestamp)) : @storage
+            UPDATE 3;   # @storage
+          }
           {
             # == pay_for_artwork ==
             # assert sp.amount > sp.mutez(0) # @parameter%pay_for_artwork : @storage
@@ -142,7 +142,11 @@ code
                 UPDATE;     # map string (pair mutez timestamp) : @storage
                 UPDATE 4;   # @storage
               }; # @storage
-          }
+          }; # @storage
+        NIL operation; # list operation : @storage
+      }
+      {
+        IF_LEFT
           {
             # == update_admin ==
             # assert sp.sender == self.data.admin # @parameter%update_admin : @storage
@@ -159,9 +163,40 @@ code
               }; # @parameter%update_admin : @storage
             # self.data.admin = new_admin # @parameter%update_admin : @storage
             UPDATE 1;   # @storage
-          }; # @storage
-      }; # @storage
-    NIL operation; # list operation : @storage
+            NIL operation; # list operation : @storage
+          }
+          {
+            DROP;       # @storage
+            # == withdraw ==
+            # assert sp.sender == self.data.admin # @storage
+            DUP;        # @storage : @storage
+            CAR;        # address : @storage
+            SENDER;     # @sender : address : @storage
+            COMPARE;    # int : @storage
+            EQ;         # bool : @storage
+            IF
+              {}
+              {
+                PUSH string "Assert failure: sp.sender == self.data.admin"; # string : @storage
+                FAILWITH;   # FAILED
+              }; # @storage
+            # sp.send(self.data.admin, sp.balance) # @storage
+            NIL operation; # list operation : @storage
+            DUP 2;      # @storage : list operation : @storage
+            CAR;        # address : list operation : @storage
+            CONTRACT unit; # option (contract unit) : list operation : @storage
+            IF_NONE
+              {
+                PUSH int 86; # int : list operation : @storage
+                FAILWITH;   # FAILED
+              }
+              {}; # @some : list operation : @storage
+            BALANCE;    # @balance : @some : list operation : @storage
+            UNIT;       # unit : @balance : @some : list operation : @storage
+            TRANSFER_TOKENS; # operation : list operation : @storage
+            CONS;       # list operation : @storage
+          }; # list operation : @storage
+      }; # list operation : @storage
     PAIR;       # pair (list operation) @storage
   };
 view
