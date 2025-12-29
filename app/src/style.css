@@ -13,99 +13,311 @@
   -moz-osx-font-smoothing: grayscale;
 }
 
-a {
-  font-weight: 500;
-  color: #646cff;
-  text-decoration: inherit;
-}
-a:hover {
-  color: #535bf2;
+* {
+  box-sizing: border-box;
 }
 
 body {
   margin: 0;
-  display: flex;
-  place-items: center;
   min-width: 320px;
   min-height: 100vh;
 }
 
-h1 {
-  font-size: 3.2em;
-  line-height: 1.1;
-}
-
 #app {
-  max-width: 1280px;
+  width: 100%;
+  max-width: 1400px;
   margin: 0 auto;
-  padding: 2rem;
+  padding: 1rem;
+}
+
+/* Header */
+.header {
   text-align: center;
+  padding: 1rem 0 2rem;
 }
 
-.logo {
-  height: 6em;
-  padding: 1.5em;
-  will-change: filter;
-  transition: filter 300ms;
-}
-.logo:hover {
-  filter: drop-shadow(0 0 2em #646cffaa);
-}
-.logo.vanilla:hover {
-  filter: drop-shadow(0 0 2em #f7df1eaa);
+.header h1 {
+  font-size: 2.5rem;
+  margin: 0 0 1rem;
 }
 
-.card {
-  padding: 2em;
+/* Wallet Controls */
+.wallet-controls {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
 }
 
-.read-the-docs {
+.wallet-button {
+  padding: 0.6rem 1.2rem;
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: #fff;
+  background: linear-gradient(135deg, #646cff, #535bf2);
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: opacity 0.2s, transform 0.2s;
+}
+
+.wallet-button:hover {
+  opacity: 0.9;
+  transform: scale(1.02);
+}
+
+.wallet-button.disconnect {
+  background: transparent;
+  border: 1px solid #666;
+  color: #aaa;
+}
+
+.wallet-button.disconnect:hover {
+  border-color: #ff6b6b;
+  color: #ff6b6b;
+}
+
+.wallet-address {
+  padding: 0.5rem 1rem;
+  background: #1a1a1a;
+  border-radius: 8px;
+  font-family: monospace;
+  font-size: 0.9rem;
+  color: #4bb543;
+}
+
+/* Grid */
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 1.5rem;
+}
+
+.loading,
+.error {
+  grid-column: 1 / -1;
+  text-align: center;
+  padding: 2rem;
   color: #888;
 }
 
-.status {
-  margin-top: 1em;
-  padding: 1em;
-  background-color: #1a1a1a;
-  border-radius: 8px;
+.error {
+  color: #ff6b6b;
 }
 
-.balance {
-  margin-top: 1em;
-  padding: 1em;
-  background-color: #1a1a1a;
-  border-radius: 8px;
-  font-size: 1.2em;
+/* Artwork Card */
+.artwork-card {
+  background: #1a1a1a;
+  border-radius: 12px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  transition: transform 0.2s, box-shadow 0.2s;
 }
 
-button {
+.artwork-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+}
+
+.artwork-image {
+  width: 100%;
+  aspect-ratio: 1;
+  object-fit: cover;
+}
+
+.artwork-name {
+  margin: 0;
+  padding: 1rem;
+  font-size: 1.1rem;
+  text-align: center;
+}
+
+.pay-button {
+  margin: 0 1rem 1rem;
+  padding: 0.75rem 1.5rem;
+  font-size: 1rem;
+  font-weight: 600;
+  color: #fff;
+  background: linear-gradient(135deg, #646cff, #535bf2);
+  border: none;
   border-radius: 8px;
-  border: 1px solid transparent;
-  padding: 0.6em 1.2em;
-  font-size: 1em;
-  font-weight: 500;
-  font-family: inherit;
-  background-color: #1a1a1a;
   cursor: pointer;
-  transition: border-color 0.25s;
+  transition: opacity 0.2s, transform 0.2s;
 }
-button:hover {
+
+.pay-button:hover {
+  opacity: 0.9;
+  transform: scale(1.02);
+}
+
+.pay-button:active {
+  transform: scale(0.98);
+}
+
+/* Modal */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.2s, visibility 0.2s;
+  z-index: 1000;
+}
+
+.modal-overlay.active {
+  opacity: 1;
+  visibility: visible;
+}
+
+.modal {
+  background: #2a2a2a;
+  border-radius: 16px;
+  padding: 1.5rem;
+  width: 100%;
+  max-width: 400px;
+  position: relative;
+  transform: scale(0.9);
+  transition: transform 0.2s;
+}
+
+.modal-overlay.active .modal {
+  transform: scale(1);
+}
+
+.modal-close {
+  position: absolute;
+  top: 0.75rem;
+  right: 0.75rem;
+  width: 2rem;
+  height: 2rem;
+  padding: 0;
+  font-size: 1.5rem;
+  line-height: 1;
+  background: transparent;
+  border: none;
+  color: #888;
+  cursor: pointer;
+  transition: color 0.2s;
+}
+
+.modal-close:hover {
+  color: #fff;
+}
+
+.modal-title {
+  margin: 0 0 1.5rem;
+  font-size: 1.25rem;
+  text-align: center;
+  padding-right: 2rem;
+}
+
+.modal-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.modal-body label {
+  font-size: 0.9rem;
+  color: #aaa;
+}
+
+.modal-body input {
+  padding: 0.75rem 1rem;
+  font-size: 1.1rem;
+  background: #1a1a1a;
+  border: 1px solid #444;
+  border-radius: 8px;
+  color: #fff;
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.modal-body input:focus {
   border-color: #646cff;
 }
-button:focus,
-button:focus-visible {
-  outline: 4px auto -webkit-focus-ring-color;
+
+.modal-send {
+  margin-top: 0.5rem;
+  padding: 0.875rem 1.5rem;
+  font-size: 1rem;
+  font-weight: 600;
+  color: #fff;
+  background: linear-gradient(135deg, #646cff, #535bf2);
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: opacity 0.2s;
 }
 
+.modal-send:hover {
+  opacity: 0.9;
+}
+
+.modal-send:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.modal-status {
+  margin-top: 1rem;
+  padding: 0.75rem;
+  text-align: center;
+  font-size: 0.9rem;
+  border-radius: 8px;
+  min-height: 2.5rem;
+}
+
+.modal-status:empty {
+  display: none;
+}
+
+.modal-status.success {
+  background: rgba(75, 181, 67, 0.2);
+  color: #4bb543;
+}
+
+.modal-status.error {
+  background: rgba(255, 107, 107, 0.2);
+  color: #ff6b6b;
+}
+
+/* Light mode */
 @media (prefers-color-scheme: light) {
   :root {
     color: #213547;
     background-color: #ffffff;
   }
-  a:hover {
-    color: #747bff;
+
+  .artwork-card {
+    background: #f5f5f5;
   }
-  button {
-    background-color: #f9f9f9;
+
+  .modal {
+    background: #fff;
+  }
+
+  .modal-body input {
+    background: #f5f5f5;
+    border-color: #ddd;
+    color: #213547;
+  }
+}
+
+/* Mobile adjustments */
+@media (max-width: 480px) {
+  .header h1 {
+    font-size: 2rem;
+  }
+
+  .grid {
+    grid-template-columns: 1fr;
   }
 }
