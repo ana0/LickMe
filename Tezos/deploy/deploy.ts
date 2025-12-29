@@ -1,12 +1,16 @@
-import { TezosToolkit } from "@taquito/taquito";
+import { config } from "dotenv";
+import { TezosToolkit, MichelsonMap } from "@taquito/taquito";
 import { InMemorySigner } from "@taquito/signer";
+import { LocalForger } from "@taquito/local-forging";
 import { readFileSync } from "fs";
 import { resolve, dirname } from "path";
 import { fileURLToPath } from "url";
 
+config();
+
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-const GHOSTNET_RPC = "https://ghostnet.tezos.marigold.dev";
+const GHOSTNET_RPC = "https://ghostnet.ecadinfra.com";
 
 interface DeployConfig {
   rpcUrl: string;
@@ -26,13 +30,11 @@ async function loadContract(): Promise<{ code: object; storage: object }> {
   return { code, storage };
 }
 
-function buildStorage(adminAddress: string): object {
+function buildStorage(adminAddress: string) {
   return {
-    prim: "Pair",
-    args: [
-      { string: adminAddress },
-      { prim: "Pair", args: [[], []] }
-    ]
+    admin: adminAddress,
+    artworks: new MichelsonMap(),
+    pending: new MichelsonMap(),
   };
 }
 
@@ -56,7 +58,10 @@ async function deploy(config: DeployConfig): Promise<string> {
   const tezos = new TezosToolkit(config.rpcUrl);
 
   const signer = await createSigner(config);
-  tezos.setProvider({ signer });
+  tezos.setProvider({
+    signer,
+    forger: new LocalForger(),
+  });
 
   const deployerAddress = await signer.publicKeyHash();
   const adminAddress = config.adminAddress || deployerAddress;
@@ -76,12 +81,24 @@ async function deploy(config: DeployConfig): Promise<string> {
   const { code } = await loadContract();
   const storage = buildStorage(adminAddress);
 
+  const originateParams = {
+    code: code as object[],
+    storage,
+  };
+
+  console.log("\nEstimating origination...");
+
+  try {
+    const estimate = await tezos.estimate.originate(originateParams);
+    console.log(`Estimated gas: ${estimate.gasLimit}, storage: ${estimate.storageLimit}`);
+  } catch (estimateError) {
+    console.error("Estimate failed:", estimateError);
+    throw estimateError;
+  }
+
   console.log("\nOriginating contract...");
 
-  const originationOp = await tezos.contract.originate({
-    code,
-    init: storage,
-  });
+  const originationOp = await tezos.contract.originate(originateParams);
 
   console.log(`Waiting for confirmation (op hash: ${originationOp.hash})...`);
 
