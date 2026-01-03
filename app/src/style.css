@@ -1,16 +1,26 @@
+@import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
+
 :root {
-  font-family: system-ui, Avenir, Helvetica, Arial, sans-serif;
-  line-height: 1.5;
+  --pink: #ff6b9d;
+  --pink-dark: #cc5580;
+  --pink-light: #ff8fb3;
+  --bg-dark: #1a1a2e;
+  --bg-card: #16213e;
+  --text: #eee;
+  --text-dim: #888;
+  --pixel-border: 4px;
+
+  font-family: 'Press Start 2P', monospace;
+  line-height: 1.8;
   font-weight: 400;
 
-  color-scheme: light dark;
-  color: rgba(255, 255, 255, 0.87);
-  background-color: #242424;
+  color-scheme: dark;
+  color: var(--text);
+  background-color: var(--bg-dark);
 
   font-synthesis: none;
   text-rendering: optimizeLegibility;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
+  image-rendering: pixelated;
 }
 
 * {
@@ -37,8 +47,13 @@ body {
 }
 
 .header h1 {
-  font-size: 2.5rem;
-  margin: 0 0 1rem;
+  font-size: 1.8rem;
+  margin: 0 0 1.5rem;
+  color: var(--pink);
+  text-shadow:
+    4px 4px 0 var(--pink-dark),
+    -2px -2px 0 #000;
+  letter-spacing: 2px;
 }
 
 /* Wallet Controls */
@@ -51,46 +66,54 @@ body {
 }
 
 .wallet-button {
-  padding: 0.6rem 1.2rem;
-  font-size: 0.9rem;
-  font-weight: 500;
+  padding: 0.75rem 1rem;
+  font-family: 'Press Start 2P', monospace;
+  font-size: 0.6rem;
   color: #fff;
-  background: linear-gradient(135deg, #646cff, #535bf2);
+  background: var(--pink);
   border: none;
-  border-radius: 8px;
+  box-shadow:
+    var(--pixel-border) var(--pixel-border) 0 var(--pink-dark),
+    calc(var(--pixel-border) * -1) calc(var(--pixel-border) * -1) 0 var(--pink-light) inset;
   cursor: pointer;
-  transition: opacity 0.2s, transform 0.2s;
 }
 
 .wallet-button:hover {
-  opacity: 0.9;
-  transform: scale(1.02);
+  background: var(--pink-light);
+}
+
+.wallet-button:active {
+  box-shadow:
+    2px 2px 0 var(--pink-dark),
+    -2px -2px 0 var(--pink-light) inset;
+  transform: translate(2px, 2px);
 }
 
 .wallet-button.disconnect {
   background: transparent;
-  border: 1px solid #666;
-  color: #aaa;
+  border: var(--pixel-border) solid #444;
+  box-shadow: none;
+  color: #888;
 }
 
 .wallet-button.disconnect:hover {
-  border-color: #ff6b6b;
-  color: #ff6b6b;
+  border-color: var(--pink);
+  color: var(--pink);
 }
 
 .wallet-address {
-  padding: 0.5rem 1rem;
-  background: #1a1a1a;
-  border-radius: 8px;
-  font-family: monospace;
-  font-size: 0.9rem;
-  color: #4bb543;
+  padding: 0.5rem 0.75rem;
+  background: #000;
+  border: var(--pixel-border) solid #444;
+  font-family: 'Press Start 2P', monospace;
+  font-size: 0.5rem;
+  color: #4f4;
 }
 
 /* Grid */
 .grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
   gap: 1.5rem;
 }
 
@@ -99,75 +122,106 @@ body {
   grid-column: 1 / -1;
   text-align: center;
   padding: 2rem;
-  color: #888;
+  color: var(--text-dim);
+  font-size: 0.7rem;
 }
 
 .error {
-  color: #ff6b6b;
+  color: #f66;
 }
 
 /* Artwork Card */
 .artwork-card {
-  background: #1a1a1a;
-  border-radius: 12px;
+  background: var(--bg-card);
+  border: var(--pixel-border) solid #444;
+  box-shadow:
+    8px 8px 0 rgba(0, 0, 0, 0.5);
   overflow: hidden;
   display: flex;
   flex-direction: column;
-  transition: transform 0.2s, box-shadow 0.2s;
 }
 
 .artwork-card:hover {
-  transform: translateY(-4px);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+  border-color: var(--pink);
+  box-shadow:
+    8px 8px 0 rgba(255, 107, 157, 0.3);
 }
 
 .artwork-image {
-  width: 100%;
-  aspect-ratio: 1;
-  object-fit: cover;
+  max-width: 100%;
+  max-height: 350px;
+  width: auto;
+  height: auto;
+  object-fit: contain;
+  margin: 0 auto;
+  display: block;
+  padding: 1rem;
+  background: #0a0a15;
 }
 
 .artwork-name {
   margin: 0;
-  padding: 1rem;
-  font-size: 1.1rem;
+  padding: 1rem 1rem 0.5rem;
+  font-size: 0.65rem;
+  text-align: center;
+  color: var(--pink-light);
+  line-height: 1.6;
+}
+
+.artwork-date {
+  margin: 0;
+  padding: 0 1rem 0.5rem;
+  font-size: 0.55rem;
+  color: var(--text-dim);
   text-align: center;
 }
 
+.artwork-total {
+  margin: 0;
+  padding: 0.5rem 1rem 1rem;
+  font-size: 0.6rem;
+  color: var(--pink);
+  text-align: center;
+  border-top: 2px dashed #333;
+}
+
 .pay-button {
-  margin: 0 1rem 1rem;
-  padding: 0.75rem 1.5rem;
-  font-size: 1rem;
-  font-weight: 600;
+  margin: auto 1rem 1rem;
+  padding: 0.75rem 1rem;
+  font-family: 'Press Start 2P', monospace;
+  font-size: 0.6rem;
   color: #fff;
-  background: linear-gradient(135deg, #646cff, #535bf2);
+  background: var(--pink);
   border: none;
-  border-radius: 8px;
+  box-shadow:
+    var(--pixel-border) var(--pixel-border) 0 var(--pink-dark),
+    calc(var(--pixel-border) * -1) calc(var(--pixel-border) * -1) 0 var(--pink-light) inset;
   cursor: pointer;
-  transition: opacity 0.2s, transform 0.2s;
 }
 
 .pay-button:hover {
-  opacity: 0.9;
-  transform: scale(1.02);
+  background: var(--pink-light);
 }
 
 .pay-button:active {
-  transform: scale(0.98);
+  box-shadow:
+    2px 2px 0 var(--pink-dark),
+    -2px -2px 0 var(--pink-light) inset;
+  transform: translate(2px, 2px);
 }
 
 /* Modal */
 .modal-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.7);
+  background: rgba(0, 0, 0, 0.85);
   display: flex;
   align-items: center;
   justify-content: center;
   padding: 1rem;
   opacity: 0;
   visibility: hidden;
-  transition: opacity 0.2s, visibility 0.2s;
+  transition: opacity 0.15s, visibility 0.15s;
   z-index: 1000;
 }
 
@@ -177,45 +231,45 @@ body {
 }
 
 .modal {
-  background: #2a2a2a;
-  border-radius: 16px;
+  background: var(--bg-card);
+  border: var(--pixel-border) solid var(--pink);
+  box-shadow: 8px 8px 0 rgba(0, 0, 0, 0.5);
   padding: 1.5rem;
   width: 100%;
   max-width: 400px;
   position: relative;
-  transform: scale(0.9);
-  transition: transform 0.2s;
 }
 
 .modal-overlay.active .modal {
-  transform: scale(1);
+  transform: none;
 }
 
 .modal-close {
   position: absolute;
-  top: 0.75rem;
-  right: 0.75rem;
+  top: 0.5rem;
+  right: 0.5rem;
   width: 2rem;
   height: 2rem;
   padding: 0;
-  font-size: 1.5rem;
+  font-size: 1rem;
   line-height: 1;
   background: transparent;
   border: none;
   color: #888;
   cursor: pointer;
-  transition: color 0.2s;
+  font-family: 'Press Start 2P', monospace;
 }
 
 .modal-close:hover {
-  color: #fff;
+  color: var(--pink);
 }
 
 .modal-title {
   margin: 0 0 1.5rem;
-  font-size: 1.25rem;
+  font-size: 0.7rem;
   text-align: center;
   padding-right: 2rem;
+  color: var(--pink-light);
 }
 
 .modal-body {
@@ -225,40 +279,40 @@ body {
 }
 
 .modal-body label {
-  font-size: 0.9rem;
-  color: #aaa;
+  font-size: 0.55rem;
+  color: var(--text-dim);
 }
 
 .modal-body input {
-  padding: 0.75rem 1rem;
-  font-size: 1.1rem;
-  background: #1a1a1a;
-  border: 1px solid #444;
-  border-radius: 8px;
+  padding: 0.75rem;
+  font-family: 'Press Start 2P', monospace;
+  font-size: 0.7rem;
+  background: #000;
+  border: var(--pixel-border) solid #444;
   color: #fff;
   outline: none;
-  transition: border-color 0.2s;
 }
 
 .modal-body input:focus {
-  border-color: #646cff;
+  border-color: var(--pink);
 }
 
 .modal-send {
   margin-top: 0.5rem;
-  padding: 0.875rem 1.5rem;
-  font-size: 1rem;
-  font-weight: 600;
+  padding: 0.875rem 1rem;
+  font-family: 'Press Start 2P', monospace;
+  font-size: 0.6rem;
   color: #fff;
-  background: linear-gradient(135deg, #646cff, #535bf2);
+  background: var(--pink);
   border: none;
-  border-radius: 8px;
+  box-shadow:
+    var(--pixel-border) var(--pixel-border) 0 var(--pink-dark),
+    calc(var(--pixel-border) * -1) calc(var(--pixel-border) * -1) 0 var(--pink-light) inset;
   cursor: pointer;
-  transition: opacity 0.2s;
 }
 
 .modal-send:hover {
-  opacity: 0.9;
+  background: var(--pink-light);
 }
 
 .modal-send:disabled {
@@ -270,8 +324,8 @@ body {
   margin-top: 1rem;
   padding: 0.75rem;
   text-align: center;
-  font-size: 0.9rem;
-  border-radius: 8px;
+  font-size: 0.5rem;
+  border: var(--pixel-border) solid transparent;
   min-height: 2.5rem;
 }
 
@@ -280,44 +334,28 @@ body {
 }
 
 .modal-status.success {
-  background: rgba(75, 181, 67, 0.2);
-  color: #4bb543;
+  background: rgba(68, 255, 68, 0.1);
+  border-color: #4f4;
+  color: #4f4;
 }
 
 .modal-status.error {
-  background: rgba(255, 107, 107, 0.2);
-  color: #ff6b6b;
-}
-
-/* Light mode */
-@media (prefers-color-scheme: light) {
-  :root {
-    color: #213547;
-    background-color: #ffffff;
-  }
-
-  .artwork-card {
-    background: #f5f5f5;
-  }
-
-  .modal {
-    background: #fff;
-  }
-
-  .modal-body input {
-    background: #f5f5f5;
-    border-color: #ddd;
-    color: #213547;
-  }
+  background: rgba(255, 102, 102, 0.1);
+  border-color: #f66;
+  color: #f66;
 }
 
 /* Mobile adjustments */
 @media (max-width: 480px) {
   .header h1 {
-    font-size: 2rem;
+    font-size: 1.2rem;
   }
 
   .grid {
     grid-template-columns: 1fr;
+  }
+
+  .artwork-name {
+    font-size: 0.55rem;
   }
 }

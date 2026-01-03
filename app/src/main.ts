@@ -13,7 +13,20 @@ const RPC_URL = 'https://ghostnet.ecadinfra.com'
 interface ArtworkMetadata {
   name: string
   image: string
+  date?: string
   description?: string
+}
+
+interface PaymentRecord {
+  timestamp: string
+  amount: number // in mutez
+}
+
+interface ArtworkData {
+  id: string
+  metadata: ArtworkMetadata | null
+  payments: PaymentRecord[]
+  totalXtz: number
 }
 
 // Initialize Taquito
@@ -99,13 +112,57 @@ async function fetchMetadata(url: string): Promise<ArtworkMetadata | null> {
     const data = await response.json()
     return {
       name: data.name,
-      image: data.image,
+      image: data.image_url,
+      date: data.date,
       description: data.description
     }
   } catch (error) {
     console.error('Failed to fetch metadata:', error)
     return null
   }
+}
+
+async function fetchArtworkPayments(artworkId: string): Promise<PaymentRecord[]> {
+  if (!CONTRACT_ADDRESS) return []
+
+  try {
+    const contract = await Tezos.contract.at(CONTRACT_ADDRESS)
+    const storage = await contract.storage() as {
+      artworks: Map<string, Array<{ timestamp: string; amount: { toNumber: () => number } }>>
+      pending: Map<string, { timestamp: string; amount: { toNumber: () => number } }>
+    }
+
+    const payments: PaymentRecord[] = []
+
+    // Get finalized payments from artworks map
+    const artworkPayments = storage.artworks.get(artworkId)
+    if (artworkPayments) {
+      for (const payment of artworkPayments) {
+        payments.push({
+          timestamp: payment.timestamp,
+          amount: payment.amount.toNumber()
+        })
+      }
+    }
+
+    // Get pending payment if exists
+    const pending = storage.pending.get(artworkId)
+    if (pending) {
+      payments.push({
+        timestamp: pending.timestamp,
+        amount: pending.amount.toNumber()
+      })
+    }
+
+    return payments
+  } catch (error) {
+    console.error(`Failed to fetch payments for ${artworkId}:`, error)
+    return []
+  }
+}
+
+function mutezToXtz(mutez: number): number {
+  return mutez / 1_000_000
 }
 
 async function payForArtwork(artworkId: string, amountXtz: number): Promise<void> {
@@ -204,16 +261,28 @@ function createModal(): {
   return { show, hide }
 }
 
+function formatXtz(amount: number): string {
+  if (amount === 0) return '0 XTZ'
+  if (amount < 0.01) return amount.toFixed(6) + ' XTZ'
+  if (amount < 1) return amount.toFixed(4) + ' XTZ'
+  return amount.toFixed(2) + ' XTZ'
+}
+
 function createArtworkCard(
   artworkId: string,
   metadata: ArtworkMetadata,
+  totalXtz: number,
   onPayClick: (artworkId: string, name: string) => void
 ): HTMLElement {
   const card = document.createElement('div')
   card.className = 'artwork-card'
+  const dateHtml = metadata.date ? `<p class="artwork-date">${metadata.date}</p>` : ''
+  const totalHtml = `<p class="artwork-total">${formatXtz(totalXtz)} received</p>`
   card.innerHTML = `
     <img src="${metadata.image}" alt="${metadata.name}" class="artwork-image" />
     <h3 class="artwork-name">${metadata.name}</h3>
+    ${dateHtml}
+    ${totalHtml}
     <button class="pay-button">Pay me</button>
   `
 
@@ -254,20 +323,30 @@ async function init() {
   const grid = document.querySelector<HTMLDivElement>('#artwork-grid')!
   const modal = createModal()
 
-  // Fetch all metadata in parallel
+  // Fetch all metadata and payments in parallel
   const artworkEntries = Object.entries(artworks) as [string, string][]
-  const metadataPromises = artworkEntries.map(async ([id, url]) => {
-    const metadata = await fetchMetadata(url)
-    return { id, metadata }
+  const dataPromises = artworkEntries.map(async ([id, url]): Promise<ArtworkData> => {
+    const [metadata, payments] = await Promise.all([
+      fetchMetadata(url),
+      fetchArtworkPayments(id)
+    ])
+
+    const totalMutez = payments.reduce((sum, p) => sum + p.amount, 0)
+    const totalXtz = mutezToXtz(totalMutez)
+
+    return { id, metadata, payments, totalXtz }
   })
 
-  const results = await Promise.all(metadataPromises)
+  const results = await Promise.all(dataPromises)
+
+  // Sort by total payments (highest first)
+  results.sort((a, b) => b.totalXtz - a.totalXtz)
 
   grid.innerHTML = ''
 
-  for (const { id, metadata } of results) {
+  for (const { id, metadata, totalXtz } of results) {
     if (metadata) {
-      const card = createArtworkCard(id, metadata, (artworkId, name) => {
+      const card = createArtworkCard(id, metadata, totalXtz, (artworkId, name) => {
         modal.show(artworkId, name)
       })
       grid.appendChild(card)
