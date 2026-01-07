@@ -10,6 +10,13 @@ import artworks from './artworks.json'
 const CONTRACT_ADDRESS = import.meta.env.VITE_CONTRACT_ADDRESS as string
 const RPC_URL = 'https://ghostnet.ecadinfra.com'
 
+// Recentness scoring configuration
+// A fresh payment gets a 1000x boost, decaying exponentially
+// By 48 hours (2 days), the boost is essentially 0
+const RECENTNESS_BOOST_FACTOR = 999 // Max additional multiplier (1 + 999 = 1000x for fresh payments)
+const RECENTNESS_DECAY_RATE = 0.24 // Decay rate per hour (tuned so boost ~= 0 at 48 hours)
+const REFRESH_INTERVAL_MS = 30_000 // Re-query contract every 30 seconds
+
 interface ArtworkMetadata {
   name: string
   image: string
@@ -27,6 +34,7 @@ interface ArtworkData {
   metadata: ArtworkMetadata | null
   payments: PaymentRecord[]
   totalXtz: number
+  score: number // Recentness-weighted score for sorting
 }
 
 // Initialize Taquito
@@ -163,6 +171,31 @@ async function fetchArtworkPayments(artworkId: string): Promise<PaymentRecord[]>
 
 function mutezToXtz(mutez: number): number {
   return mutez / 1_000_000
+}
+
+// Calculate the recentness multiplier for a payment based on its age
+// Fresh payments get up to 1000x boost, decaying exponentially to 1x by ~48 hours
+function calculateRecentnessMultiplier(timestamp: string): number {
+  const paymentTime = new Date(timestamp).getTime()
+  const now = Date.now()
+  const ageMs = Math.max(0, now - paymentTime)
+  const ageHours = ageMs / (1000 * 60 * 60)
+
+  // Exponential decay: multiplier = 1 + BOOST_FACTOR * e^(-decay_rate * age)
+  const boost = RECENTNESS_BOOST_FACTOR * Math.exp(-RECENTNESS_DECAY_RATE * ageHours)
+  return 1 + boost
+}
+
+// Calculate the score for a single payment (XTZ value * recentness multiplier)
+function calculatePaymentScore(payment: PaymentRecord): number {
+  const xtzAmount = mutezToXtz(payment.amount)
+  const multiplier = calculateRecentnessMultiplier(payment.timestamp)
+  return xtzAmount * multiplier
+}
+
+// Calculate total score for an artwork based on all its payments
+function calculateArtworkScore(payments: PaymentRecord[]): number {
+  return payments.reduce((sum, payment) => sum + calculatePaymentScore(payment), 0)
 }
 
 async function payForArtwork(artworkId: string, amountXtz: number): Promise<void> {
@@ -323,39 +356,54 @@ async function init() {
   const grid = document.querySelector<HTMLDivElement>('#artwork-grid')!
   const modal = createModal()
 
-  // Fetch all metadata and payments in parallel
+  // Cache metadata to avoid re-fetching on refresh (metadata doesn't change)
+  const metadataCache = new Map<string, ArtworkMetadata | null>()
   const artworkEntries = Object.entries(artworks) as [string, string][]
-  const dataPromises = artworkEntries.map(async ([id, url]): Promise<ArtworkData> => {
-    const [metadata, payments] = await Promise.all([
-      fetchMetadata(url),
-      fetchArtworkPayments(id)
-    ])
 
-    const totalMutez = payments.reduce((sum, p) => sum + p.amount, 0)
-    const totalXtz = mutezToXtz(totalMutez)
+  // Fetch and render artworks, sorted by recentness-weighted score
+  async function fetchAndRenderArtworks() {
+    const dataPromises = artworkEntries.map(async ([id, url]): Promise<ArtworkData> => {
+      // Use cached metadata if available, otherwise fetch
+      let metadata = metadataCache.get(id)
+      if (metadata === undefined) {
+        metadata = await fetchMetadata(url)
+        metadataCache.set(id, metadata)
+      }
 
-    return { id, metadata, payments, totalXtz }
-  })
+      const payments = await fetchArtworkPayments(id)
+      const totalMutez = payments.reduce((sum, p) => sum + p.amount, 0)
+      const totalXtz = mutezToXtz(totalMutez)
+      const score = calculateArtworkScore(payments)
 
-  const results = await Promise.all(dataPromises)
+      return { id, metadata, payments, totalXtz, score }
+    })
 
-  // Sort by total payments (highest first)
-  results.sort((a, b) => b.totalXtz - a.totalXtz)
+    const results = await Promise.all(dataPromises)
 
-  grid.innerHTML = ''
+    // Sort by recentness-weighted score (highest first)
+    results.sort((a, b) => b.score - a.score)
 
-  for (const { id, metadata, totalXtz } of results) {
-    if (metadata) {
-      const card = createArtworkCard(id, metadata, totalXtz, (artworkId, name) => {
-        modal.show(artworkId, name)
-      })
-      grid.appendChild(card)
+    grid.innerHTML = ''
+
+    for (const { id, metadata, totalXtz } of results) {
+      if (metadata) {
+        const card = createArtworkCard(id, metadata, totalXtz, (artworkId, name) => {
+          modal.show(artworkId, name)
+        })
+        grid.appendChild(card)
+      }
+    }
+
+    if (grid.children.length === 0) {
+      grid.innerHTML = '<div class="error">Failed to load artworks</div>'
     }
   }
 
-  if (grid.children.length === 0) {
-    grid.innerHTML = '<div class="error">Failed to load artworks</div>'
-  }
+  // Initial fetch
+  await fetchAndRenderArtworks()
+
+  // Periodically refresh to catch new payments and update scores
+  setInterval(fetchAndRenderArtworks, REFRESH_INTERVAL_MS)
 }
 
 init()
