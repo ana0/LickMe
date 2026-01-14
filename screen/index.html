@@ -1,0 +1,347 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dead Pixels Spread</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            background: url('img2.jpg');
+            background-size: cover;
+            background-position: center;
+            min-height: 100vh;
+            overflow: hidden;
+        }
+        
+        canvas {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            cursor: crosshair;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="canvas"></canvas>
+
+    <script>
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+        
+        // Load and draw top image
+        const img = new Image();
+        img.src = 'img1.jpg';
+        img.onload = () => {
+            ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        };
+        img.onerror = () => {
+            // Fallback if image doesn't load
+            ctx.fillStyle = '#2a2a2a';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+        };
+        
+        const pixelSize = 4;
+        const grid = new Map();
+        const dripPixels = new Map();
+        const growthQueue = [];
+        const drips = [];
+        let isGrowing = false;
+        let autoClickCount = 0;
+        let expandMode = false;
+        let expansionStopped = false;
+        let frozenTime = null;
+        
+        function addPixel(x, y, centerX, centerY) {
+            const key = `${x},${y}`;
+            if (grid.has(key)) return false;
+            
+            const distance = Math.sqrt(Math.pow(x - centerX, 2) + Math.pow(y - centerY, 2));
+            if (!expandMode && distance > 60) return false;
+            
+            grid.set(key, {x, y, createdAt: Date.now()});
+            return true;
+        }
+        
+        function growFungus() {
+            if (growthQueue.length === 0) {
+                isGrowing = false;
+                return;
+            }
+            
+            const batchSize = 50;
+            for (let i = 0; i < batchSize && growthQueue.length > 0; i++) {
+                const {x, y, centerX, centerY} = growthQueue.shift();
+                
+                const directions = [
+                    {dx: pixelSize, dy: 0}, {dx: -pixelSize, dy: 0},
+                    {dx: 0, dy: pixelSize}, {dx: 0, dy: -pixelSize},
+                    {dx: pixelSize, dy: pixelSize}, {dx: -pixelSize, dy: -pixelSize},
+                    {dx: pixelSize, dy: -pixelSize}, {dx: -pixelSize, dy: pixelSize}
+                ];
+                
+                for (let i = directions.length - 1; i > 0; i--) {
+                    const j = Math.floor(Math.random() * (i + 1));
+                    [directions[i], directions[j]] = [directions[j], directions[i]];
+                }
+                
+                for (const {dx, dy} of directions) {
+                    const newX = x + dx;
+                    const newY = y + dy;
+                    
+                    if (newX < 0 || newX >= canvas.width || newY < 0 || newY >= canvas.height) continue;
+                    
+                    if (expandMode) {
+                        const distFromCenter = Math.sqrt(Math.pow(newX - 300, 2) + Math.pow(newY - 300, 2));
+                        if (distFromCenter > 1000) {
+                            expansionStopped = true;
+                            frozenTime = Date.now();
+                            growthQueue.length = 0;
+                            isGrowing = false;
+                            return;
+                        }
+                    }
+                    
+                    const key = `${newX},${newY}`;
+                    if (grid.has(key)) continue;
+                    
+                    const orthogonalNeighbors = [
+                        `${newX + pixelSize},${newY}`,
+                        `${newX - pixelSize},${newY}`,
+                        `${newX},${newY + pixelSize}`,
+                        `${newX},${newY - pixelSize}`
+                    ].filter(k => grid.has(k)).length;
+                    
+                    const skipChance = expandMode ? 0.75 : 0.6;
+                    if (orthogonalNeighbors > 0 && Math.random() < skipChance) continue;
+                    
+                    const distance = Math.sqrt(Math.pow(newX - centerX, 2) + Math.pow(newY - centerY, 2));
+                    if (!expandMode && distance > 60) continue;
+                    
+                    const growthChance = Math.random() < (expandMode ? 0.2 : 0.3);
+                    
+                    if (growthChance && addPixel(newX, newY, centerX, centerY)) {
+                        if (Math.random() < (expandMode ? 0.6 : 0.7)) {
+                            growthQueue.push({x: newX, y: newY, centerX, centerY});
+                        }
+                    }
+                }
+            }
+            
+            requestAnimationFrame(growFungus);
+        }
+        
+        function findEdgePixels() {
+            const edgePixels = [];
+            grid.forEach((pixel) => {
+                const neighbors = [
+                    `${pixel.x + pixelSize},${pixel.y}`, `${pixel.x - pixelSize},${pixel.y}`,
+                    `${pixel.x},${pixel.y + pixelSize}`, `${pixel.x},${pixel.y - pixelSize}`,
+                    `${pixel.x + pixelSize},${pixel.y + pixelSize}`, `${pixel.x - pixelSize},${pixel.y - pixelSize}`,
+                    `${pixel.x + pixelSize},${pixel.y - pixelSize}`, `${pixel.x - pixelSize},${pixel.y + pixelSize}`
+                ];
+                if (neighbors.some(nKey => !grid.has(nKey))) {
+                    edgePixels.push(pixel);
+                }
+            });
+            return edgePixels;
+        }
+        
+        function updateDrips() {
+            if (expandMode && !expansionStopped && Math.random() < 0.01) {
+                const edgePixels = findEdgePixels();
+                const bottomEdges = edgePixels.filter(p => {
+                    const below = `${p.x},${p.y + pixelSize}`;
+                    return !grid.has(below) && p.y < canvas.height - 100;
+                });
+                
+                if (bottomEdges.length > 0) {
+                    const dripSource = bottomEdges[Math.floor(Math.random() * bottomEdges.length)];
+                    drips.push({x: dripSource.x, y: dripSource.y + pixelSize, speed: 2 + Math.random() * 2, createdAt: Date.now()});
+                }
+            }
+            
+            for (let i = drips.length - 1; i >= 0; i--) {
+                const drip = drips[i];
+                drip.y += drip.speed;
+                
+                const snappedX = Math.floor(drip.x / pixelSize) * pixelSize;
+                const snappedY = Math.floor(drip.y / pixelSize) * pixelSize;
+                const key = `${snappedX},${snappedY}`;
+                
+                if (!dripPixels.has(key) && snappedY >= 0 && snappedY < canvas.height) {
+                    dripPixels.set(key, {x: snappedX, y: snappedY, createdAt: Date.now()});
+                }
+                
+                if (drip.y >= canvas.height) drips.splice(i, 1);
+            }
+        }
+        
+        function triggerSpread(clientX, clientY) {
+            const centerX = Math.floor(clientX / pixelSize) * pixelSize;
+            const centerY = Math.floor(clientY / pixelSize) * pixelSize;
+            
+            let nearExisting = false;
+            for (const [key, pixel] of grid) {
+                const distance = Math.sqrt(Math.pow(pixel.x - centerX, 2) + Math.pow(pixel.y - centerY, 2));
+                if (distance < 80) {
+                    nearExisting = true;
+                    if (Math.random() < 0.7) {
+                        growthQueue.push({x: pixel.x, y: pixel.y, centerX: pixel.x, centerY: pixel.y});
+                    }
+                }
+            }
+            
+            const seedCount = nearExisting ? 80 : 20;
+            const seedDistance = nearExisting ? 8 : 3;
+            
+            addPixel(centerX, centerY, centerX, centerY);
+            
+            for (let i = 0; i < seedCount; i++) {
+                const angle = (Math.PI * 2 / seedCount) * i;
+                const distance = pixelSize * (2 + Math.floor(Math.random() * seedDistance));
+                const x = Math.floor((centerX + Math.cos(angle) * distance) / pixelSize) * pixelSize;
+                const y = Math.floor((centerY + Math.sin(angle) * distance) / pixelSize) * pixelSize;
+                
+                if (addPixel(x, y, centerX, centerY)) {
+                    growthQueue.push({x, y, centerX, centerY});
+                }
+            }
+            
+            if (!isGrowing) {
+                isGrowing = true;
+                growFungus();
+            }
+        }
+        
+        function draw() {
+            updateDrips();
+            
+            const currentTime = expansionStopped ? frozenTime : Date.now();
+            const whiteToBlackTime = 5000; // 5 seconds white to black
+            const burnThroughTime = 10000; // 10 seconds total - burns through at 5 seconds
+            
+            grid.forEach(pixel => {
+                const age = currentTime - pixel.createdAt;
+                
+                if (age < whiteToBlackTime) {
+                    // White to black
+                    const ratio = age / whiteToBlackTime;
+                    const colorValue = Math.floor(255 - (ratio * 255));
+                    ctx.fillStyle = `rgb(${colorValue}, ${colorValue}, ${colorValue})`;
+                    ctx.fillRect(pixel.x, pixel.y, pixelSize, pixelSize);
+                } else if (age < burnThroughTime) {
+                    // Burn through
+                    const burnRatio = (age - whiteToBlackTime) / (burnThroughTime - whiteToBlackTime);
+                    const alpha = 1 - burnRatio;
+                    ctx.fillStyle = `rgba(0, 0, 0, ${alpha})`;
+                    ctx.fillRect(pixel.x, pixel.y, pixelSize, pixelSize);
+                } else {
+                    // Clear to reveal purple
+                    ctx.clearRect(pixel.x, pixel.y, pixelSize, pixelSize);
+                }
+            });
+            
+            dripPixels.forEach(pixel => {
+                const age = currentTime - pixel.createdAt;
+                
+                if (age < whiteToBlackTime) {
+                    const ratio = age / whiteToBlackTime;
+                    const colorValue = Math.floor(255 - (ratio * 255));
+                    ctx.fillStyle = `rgb(${colorValue}, ${colorValue}, ${colorValue})`;
+                    ctx.fillRect(pixel.x, pixel.y, pixelSize, pixelSize);
+                } else if (age < burnThroughTime) {
+                    const burnRatio = (age - whiteToBlackTime) / (burnThroughTime - whiteToBlackTime);
+                    const alpha = 1 - burnRatio;
+                    ctx.fillStyle = `rgba(0, 0, 0, ${alpha})`;
+                    ctx.fillRect(pixel.x, pixel.y, pixelSize, pixelSize);
+                } else {
+                    ctx.clearRect(pixel.x, pixel.y, pixelSize, pixelSize);
+                }
+            });
+            
+            ctx.fillStyle = '#ffffff';
+            ctx.font = '20px Arial';
+            ctx.fillText(`Clicks: ${autoClickCount}${expandMode ? (expansionStopped ? ' - STOPPED' : ' - EXPANDING') : '/20'}`, 10, 30);
+            
+            requestAnimationFrame(draw);
+        }
+        
+        draw();
+        
+        const maxAutoClicks = 20;
+        
+        function doAutoSpread() {
+            if (autoClickCount >= maxAutoClicks) {
+                expandMode = true;
+                
+                const expandInterval = setInterval(() => {
+                    if (expansionStopped) {
+                        clearInterval(expandInterval);
+                        return;
+                    }
+                    
+                    const edgePixels = findEdgePixels();
+                    if (edgePixels.length === 0) {
+                        expansionStopped = true;
+                        frozenTime = Date.now();
+                        clearInterval(expandInterval);
+                        return;
+                    }
+                    
+                    const selectedEdges = edgePixels.filter(() => Math.random() < 0.5);
+                    selectedEdges.forEach(pixel => {
+                        if (Math.random() < 0.7) {
+                            growthQueue.push({x: pixel.x, y: pixel.y, centerX: pixel.x, centerY: pixel.y});
+                        }
+                    });
+                    
+                    if (!isGrowing && growthQueue.length > 0) {
+                        isGrowing = true;
+                        growFungus();
+                    }
+                    
+                    autoClickCount++;
+                }, 100);
+                
+                return;
+            }
+            
+            triggerSpread(300 + (Math.random() - 0.5) * 20, 300 + (Math.random() - 0.5) * 20);
+            autoClickCount++;
+            
+            if (autoClickCount < maxAutoClicks) {
+                setTimeout(doAutoSpread, 200);
+            } else {
+                setTimeout(doAutoSpread, 200);
+            }
+        }
+        
+        doAutoSpread();
+        
+        canvas.addEventListener('click', (e) => {
+            triggerSpread(e.clientX, e.clientY);
+        });
+        
+        window.addEventListener('resize', () => {
+            const wasGray = ctx.getImageData(0, 0, 1, 1).data[0] === 42;
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+            if (wasGray) {
+                ctx.fillStyle = '#2a2a2a';
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+            }
+        });
+    </script>
+</body>
+</html>
