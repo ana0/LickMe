@@ -2,3 +2,6 @@ app/node_modules
 Tezos/deploy/node_modules
 .env
 Tezos/venv
+
+# Firebase private configuration
+shared/firebase-config.private.js

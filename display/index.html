@@ -1,219 +1,553 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>LickMe Display</title>
-  <style>
-    * {
-      margin: 0;
-      padding: 0;
-      box-sizing: border-box;
-    }
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LickMe Display Wall</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
 
-    html, body {
-      width: 100%;
-      height: 100%;
-      overflow: hidden;
-    }
+        html, body {
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background: #000;
+        }
 
-    body {
-      background-color: #000;
-      background-repeat: repeat-x;
-      background-size: auto 100%;
-      background-position: left center;
-    }
+        #container {
+            display: flex;
+            width: 100%;
+            height: 100%;
+        }
 
-    #loading {
-      position: fixed;
-      top: 50%;
-      left: 50%;
-      transform: translate(-50%, -50%);
-      color: #fff;
-      font-family: monospace;
-      font-size: 24px;
-    }
-  </style>
+        .screen-canvas {
+            flex: 1;
+            height: 100%;
+            border: none;
+        }
+
+        #status {
+            position: fixed;
+            top: 10px;
+            left: 10px;
+            color: #fff;
+            font-family: monospace;
+            font-size: 14px;
+            z-index: 100;
+            background: rgba(0,0,0,0.5);
+            padding: 5px 10px;
+            border-radius: 4px;
+        }
+
+        #loading {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: #fff;
+            font-family: monospace;
+            font-size: 24px;
+        }
+    </style>
 </head>
 <body>
-  <div id="loading">Loading...</div>
+    <div id="loading">Loading...</div>
+    <div id="status"></div>
+    <div id="container">
+        <canvas id="canvas1" class="screen-canvas"></canvas>
+        <canvas id="canvas2" class="screen-canvas"></canvas>
+        <canvas id="canvas3" class="screen-canvas"></canvas>
+    </div>
 
-  <script>
-    // Configuration
-    const CONTRACT_ADDRESS = 'KT1NxH5MbkuMAVMwzJ4EBwe8ujVcKPDStzhN';
-    const TZKT_API = 'https://api.ghostnet.tzkt.io/v1';
-    const REFRESH_INTERVAL_MS = 30000;
+    <!-- Firebase SDK -->
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js"></script>
 
-    // Recentness scoring configuration (same as app)
-    const RECENTNESS_BOOST_FACTOR = 999;
-    const RECENTNESS_DECAY_RATE = 0.24;
+    <!-- Shared config -->
+    <script src="../shared/firebase-config.private.js"></script>
+    <script src="../shared/firebase-config.js"></script>
 
-    // Artwork metadata URLs
-    const ARTWORKS = {
-      "artwork_1": "https://isthisa.computer/api/lickworks/1",
-      "artwork_2": "https://isthisa.computer/api/lickworks/2",
-      "artwork_3": "https://isthisa.computer/api/lickworks/3",
-      "artwork_4": "https://isthisa.computer/api/lickworks/4",
-      "artwork_5": "https://isthisa.computer/api/lickworks/5",
-      "artwork_6": "https://isthisa.computer/api/lickworks/6",
-      "artwork_7": "https://isthisa.computer/api/lickworks/7",
-      "artwork_8": "https://isthisa.computer/api/lickworks/8",
-      "artwork_9": "https://isthisa.computer/api/lickworks/9",
-      "artwork_10": "https://isthisa.computer/api/lickworks/10"
-    };
+    <script>
+        // Database references (set after auth)
+        let database;
+        let currentArtworkRef;
+        let screensRef;
 
-    // Cache for artwork metadata (doesn't change)
-    const metadataCache = {};
+        // Canvas setup
+        const canvases = [
+            document.getElementById('canvas1'),
+            document.getElementById('canvas2'),
+            document.getElementById('canvas3')
+        ];
+        const contexts = canvases.map(c => c.getContext('2d'));
 
-    // Track current displayed artwork to avoid unnecessary reloads
-    let currentArtworkId = null;
+        const loadingEl = document.getElementById('loading');
+        const statusEl = document.getElementById('status');
 
-    // Convert mutez to XTZ
-    function mutezToXtz(mutez) {
-      return mutez / 1000000;
-    }
+        // State
+        const pixelSize = CONFIG.PIXEL_SIZE;
+        const screenPixels = [new Map(), new Map(), new Map()]; // Pixels for each screen
+        const screenDripPixels = [new Map(), new Map(), new Map()]; // Drip pixels for each screen
+        const screenDrips = [[], [], []]; // Active drips for each screen
+        let currentArtworkIndex = 0;
+        let artworkMetadata = [];
+        let currentImages = [null, null, null];
+        let isMaster = false;
 
-    // Calculate recentness multiplier (same algorithm as app)
-    function calculateRecentnessMultiplier(timestamp) {
-      const paymentTime = new Date(timestamp).getTime();
-      const now = Date.now();
-      const ageMs = Math.max(0, now - paymentTime);
-      const ageHours = ageMs / (1000 * 60 * 60);
-      const boost = RECENTNESS_BOOST_FACTOR * Math.exp(-RECENTNESS_DECAY_RATE * ageHours);
-      return 1 + boost;
-    }
+        // Color sampling canvases for each screen
+        let colorSampleCanvases = [null, null, null];
+        let colorSampleCtxs = [null, null, null];
 
-    // Calculate score for a single payment
-    function calculatePaymentScore(payment) {
-      const xtzAmount = mutezToXtz(payment.amount);
-      const multiplier = calculateRecentnessMultiplier(payment.timestamp);
-      return xtzAmount * multiplier;
-    }
+        // Reference dimensions (what the touch screens report)
+        let screenDimensions = [
+            { width: 1920, height: 1080 },
+            { width: 1920, height: 1080 },
+            { width: 1920, height: 1080 }
+        ];
 
-    // Calculate total score for an artwork
-    function calculateArtworkScore(payments) {
-      return payments.reduce((sum, p) => sum + calculatePaymentScore(p), 0);
-    }
+        // Sample color from an image at given coordinates
+        function sampleColor(screenIndex, x, y) {
+            const sampleCtx = colorSampleCtxs[screenIndex];
+            const sampleCanvas = colorSampleCanvases[screenIndex];
+            const dims = screenDimensions[screenIndex];
 
-    // Fetch contract storage directly from TzKT API
-    async function fetchContractStorage() {
-      const url = `${TZKT_API}/contracts/${CONTRACT_ADDRESS}/storage`;
-      try {
-        const response = await fetch(url);
-        if (!response.ok) return null;
-        return response.json();
-      } catch (e) {
-        return null;
-      }
-    }
-
-    // Fetch all payments from the contract
-    async function fetchAllPayments() {
-      const paymentsByArtwork = {};
-
-      // Initialize empty arrays for all artworks
-      for (const artworkId of Object.keys(ARTWORKS)) {
-        paymentsByArtwork[artworkId] = [];
-      }
-
-      const storage = await fetchContractStorage();
-      if (!storage) return paymentsByArtwork;
-
-      // Get finalized payments from artworks map
-      if (storage.artworks) {
-        for (const [artworkId, payments] of Object.entries(storage.artworks)) {
-          if (paymentsByArtwork[artworkId] && Array.isArray(payments)) {
-            for (const p of payments) {
-              paymentsByArtwork[artworkId].push({
-                amount: parseInt(p.amount, 10),
-                timestamp: p.timestamp
-              });
+            if (!sampleCtx || !sampleCanvas) {
+                return { r: 128, g: 128, b: 128 };
             }
-          }
+            try {
+                const sampleX = Math.floor((x / dims.width) * sampleCanvas.width);
+                const sampleY = Math.floor((y / dims.height) * sampleCanvas.height);
+                const pixel = sampleCtx.getImageData(sampleX, sampleY, 1, 1).data;
+                return { r: pixel[0], g: pixel[1], b: pixel[2] };
+            } catch (e) {
+                return { r: 128, g: 128, b: 128 };
+            }
         }
-      }
 
-      // Get pending payments
-      if (storage.pending) {
-        for (const [artworkId, pending] of Object.entries(storage.pending)) {
-          if (paymentsByArtwork[artworkId] && pending) {
-            paymentsByArtwork[artworkId].push({
-              amount: parseInt(pending.amount, 10),
-              timestamp: pending.timestamp
+        // Resize canvases
+        function resizeCanvases() {
+            const containerWidth = window.innerWidth;
+            const containerHeight = window.innerHeight;
+            const canvasWidth = containerWidth / 3;
+
+            canvases.forEach((canvas, i) => {
+                canvas.width = canvasWidth;
+                canvas.height = containerHeight;
+                canvas.style.width = `${canvasWidth}px`;
+                canvas.style.height = `${containerHeight}px`;
+
+                // Redraw image if loaded
+                if (currentImages[i]) {
+                    contexts[i].drawImage(currentImages[i], 0, 0, canvas.width, canvas.height);
+                }
             });
-          }
         }
-      }
 
-      return paymentsByArtwork;
-    }
-
-    // Fetch artwork metadata
-    async function fetchMetadata(artworkId) {
-      if (metadataCache[artworkId]) {
-        return metadataCache[artworkId];
-      }
-
-      const url = ARTWORKS[artworkId];
-      if (!url) return null;
-
-      try {
-        const response = await fetch(url);
-        if (!response.ok) return null;
-        const data = await response.json();
-        const metadata = {
-          name: data.name,
-          image: data.image_url
-        };
-        metadataCache[artworkId] = metadata;
-        return metadata;
-      } catch (e) {
-        return null;
-      }
-    }
-
-    // Find the top-scoring artwork and display it
-    async function updateDisplay() {
-      try {
-        const paymentsByArtwork = await fetchAllPayments();
-
-        // Calculate scores for all artworks
-        const artworkScores = Object.entries(paymentsByArtwork).map(([id, payments]) => ({
-          id,
-          score: calculateArtworkScore(payments)
-        }));
-
-        // Sort by score (highest first)
-        artworkScores.sort((a, b) => b.score - a.score);
-
-        // Get the top artwork
-        const topArtwork = artworkScores[0];
-        if (!topArtwork || topArtwork.score === 0) return;
-
-        // Only update if the top artwork changed
-        if (topArtwork.id === currentArtworkId) return;
-
-        // Fetch metadata for the top artwork
-        const metadata = await fetchMetadata(topArtwork.id);
-        if (!metadata || !metadata.image) return;
-
-        // Set the background image (full height, horizontally tiled)
-        document.body.style.backgroundImage = `url('${metadata.image}')`;
-        currentArtworkId = topArtwork.id;
-
-        // Hide loading indicator
-        const loading = document.getElementById('loading');
-        if (loading) {
-          loading.style.display = 'none';
+        // Load artwork metadata from API
+        async function loadArtworkMetadata() {
+            const metadata = [];
+            for (const url of CONFIG.ARTWORKS) {
+                try {
+                    const response = await fetch(url);
+                    if (response.ok) {
+                        const data = await response.json();
+                        metadata.push({
+                            name: data.name,
+                            image: data.image_url
+                        });
+                    }
+                } catch (e) {
+                    console.warn('Failed to load artwork:', url);
+                }
+            }
+            return metadata;
         }
-      } catch (e) {
-        // Silently fail and retry on next interval
-      }
-    }
 
-    // Initial load and periodic refresh
-    updateDisplay();
-    setInterval(updateDisplay, REFRESH_INTERVAL_MS);
-  </script>
+        // Load and display current artwork image on all canvases
+        function loadArtworkImage(index) {
+            if (index < 0 || index >= artworkMetadata.length) return;
+
+            const artwork = artworkMetadata[index];
+            if (!artwork || !artwork.image) return;
+
+            canvases.forEach((canvas, i) => {
+                const img = new Image();
+                img.crossOrigin = 'anonymous';
+                img.src = artwork.image;
+                img.onload = () => {
+                    currentImages[i] = img;
+                    contexts[i].drawImage(img, 0, 0, canvas.width, canvas.height);
+
+                    // Create color sampling canvas
+                    colorSampleCanvases[i] = document.createElement('canvas');
+                    colorSampleCanvases[i].width = img.width;
+                    colorSampleCanvases[i].height = img.height;
+                    colorSampleCtxs[i] = colorSampleCanvases[i].getContext('2d');
+                    colorSampleCtxs[i].drawImage(img, 0, 0);
+                };
+                img.onerror = () => {
+                    currentImages[i] = null;
+                    colorSampleCanvases[i] = null;
+                    colorSampleCtxs[i] = null;
+                    contexts[i].fillStyle = '#2a2a2a';
+                    contexts[i].fillRect(0, 0, canvas.width, canvas.height);
+                };
+            });
+        }
+
+        // Clear all pixels for all screens
+        function clearAllPixels() {
+            screenPixels.forEach(pixels => pixels.clear());
+            screenDripPixels.forEach(pixels => pixels.clear());
+            screenDrips.forEach(drips => drips.length = 0);
+            canvases.forEach((canvas, i) => {
+                if (currentImages[i]) {
+                    contexts[i].drawImage(currentImages[i], 0, 0, canvas.width, canvas.height);
+                } else {
+                    contexts[i].fillStyle = '#2a2a2a';
+                    contexts[i].fillRect(0, 0, canvas.width, canvas.height);
+                }
+            });
+        }
+
+        // Find edge pixels for a screen (for drip generation)
+        function findEdgePixels(screenIndex) {
+            const pixels = screenPixels[screenIndex];
+            const edgePixels = [];
+            pixels.forEach((pixel, key) => {
+                const neighbors = [
+                    `${pixel.x + pixelSize}_${pixel.y}`,
+                    `${pixel.x - pixelSize}_${pixel.y}`,
+                    `${pixel.x}_${pixel.y + pixelSize}`,
+                    `${pixel.x}_${pixel.y - pixelSize}`
+                ];
+                if (neighbors.some(nKey => !pixels.has(nKey))) {
+                    edgePixels.push(pixel);
+                }
+            });
+            return edgePixels;
+        }
+
+        // Update drips for a screen
+        function updateDrips(screenIndex, canvas) {
+            const pixels = screenPixels[screenIndex];
+            const dripPixels = screenDripPixels[screenIndex];
+            const drips = screenDrips[screenIndex];
+            const dims = screenDimensions[screenIndex];
+
+            // Occasionally spawn new drips
+            if (Math.random() < 0.02 && pixels.size > 50) {
+                const edgePixels = findEdgePixels(screenIndex);
+                const bottomEdges = edgePixels.filter(p => {
+                    const below = `${p.x}_${p.y + pixelSize}`;
+                    return !pixels.has(below) && p.y < dims.height - 100;
+                });
+
+                if (bottomEdges.length > 0) {
+                    const dripSource = bottomEdges[Math.floor(Math.random() * bottomEdges.length)];
+                    drips.push({
+                        x: dripSource.x,
+                        y: dripSource.y + pixelSize,
+                        speed: 2 + Math.random() * 3,
+                        createdAt: Date.now()
+                    });
+                }
+            }
+
+            // Update existing drips
+            for (let i = drips.length - 1; i >= 0; i--) {
+                const drip = drips[i];
+                drip.y += drip.speed;
+
+                const snappedX = Math.floor(drip.x / pixelSize) * pixelSize;
+                const snappedY = Math.floor(drip.y / pixelSize) * pixelSize;
+                const key = `${snappedX}_${snappedY}`;
+
+                if (!dripPixels.has(key) && snappedY >= 0 && snappedY < dims.height) {
+                    const color = sampleColor(screenIndex, snappedX, snappedY);
+                    dripPixels.set(key, { x: snappedX, y: snappedY, r: color.r, g: color.g, b: color.b, createdAt: Date.now() });
+                }
+
+                if (drip.y >= dims.height) drips.splice(i, 1);
+            }
+        }
+
+        // Drawing loop
+        function draw() {
+            const currentTime = Date.now();
+
+            canvases.forEach((canvas, screenIndex) => {
+                const ctx = contexts[screenIndex];
+                const pixels = screenPixels[screenIndex];
+                const dripPixels = screenDripPixels[screenIndex];
+                const dims = screenDimensions[screenIndex];
+
+                // Drips now come from Firebase - no local generation needed
+
+                // Draw base image
+                if (currentImages[screenIndex]) {
+                    ctx.drawImage(currentImages[screenIndex], 0, 0, canvas.width, canvas.height);
+                }
+
+                // Calculate scale factor (touch screen coords to display coords)
+                const scaleX = canvas.width / dims.width;
+                const scaleY = canvas.height / dims.height;
+                // Use integer scaled size for crisp pixels
+                const scaledSize = Math.max(1, Math.round(pixelSize * Math.min(scaleX, scaleY)));
+
+                // Helper to draw a pixel - fade from white to sampled color, then stay
+                function drawPixel(pixel) {
+                    const age = currentTime - pixel.createdAt;
+                    const r = pixel.r || 128;
+                    const g = pixel.g || 128;
+                    const b = pixel.b || 128;
+
+                    // Scale and round to integers for crisp rendering
+                    const scaledX = Math.round(pixel.x * scaleX);
+                    const scaledY = Math.round(pixel.y * scaleY);
+
+                    if (age < CONFIG.WHITE_TO_BLACK_MS) {
+                        // White to sampled color transition
+                        const ratio = age / CONFIG.WHITE_TO_BLACK_MS;
+                        const pr = Math.floor(255 - (ratio * (255 - r)));
+                        const pg = Math.floor(255 - (ratio * (255 - g)));
+                        const pb = Math.floor(255 - (ratio * (255 - b)));
+                        ctx.fillStyle = `rgb(${pr}, ${pg}, ${pb})`;
+                        ctx.fillRect(scaledX, scaledY, scaledSize, scaledSize);
+                    } else {
+                        // Stay at sampled color
+                        ctx.fillStyle = `rgb(${r}, ${g}, ${b})`;
+                        ctx.fillRect(scaledX, scaledY, scaledSize, scaledSize);
+                    }
+                }
+
+                // Draw main pixels
+                pixels.forEach((pixel, key) => {
+                    drawPixel(pixel);
+                });
+
+                // Draw drip pixels
+                dripPixels.forEach((pixel, key) => {
+                    drawPixel(pixel);
+                });
+            });
+
+            // Update status
+            const totalPixels = screenPixels.reduce((sum, p) => sum + p.size, 0);
+            const totalDrips = screenDripPixels.reduce((sum, p) => sum + p.size, 0);
+            statusEl.textContent = `Artwork ${currentArtworkIndex + 1}/${artworkMetadata.length} | Pixels: ${totalPixels} | Drips: ${totalDrips}${isMaster ? ' (Master)' : ''}`;
+
+            requestAnimationFrame(draw);
+        }
+
+        // Setup Firebase listeners for each screen
+        function setupScreenListeners() {
+            for (let i = 0; i < 3; i++) {
+                const screenKey = `screen${i + 1}`;
+                const screenRef = database.ref(`screens/${screenKey}`);
+                const pixelsRef = screenRef.child('pixels');
+                const dripsRef = screenRef.child('drips');
+
+                // Listen for screen dimensions
+                screenRef.child('dimensions').on('value', (snapshot) => {
+                    const dims = snapshot.val();
+                    if (dims && dims.width && dims.height) {
+                        screenDimensions[i] = { width: dims.width, height: dims.height };
+                        console.log(`Screen ${i + 1} dimensions updated:`, dims.width, 'x', dims.height);
+                    }
+                });
+
+                // Also fetch dimensions immediately in case they already exist
+                screenRef.child('dimensions').once('value', (snapshot) => {
+                    const dims = snapshot.val();
+                    if (dims && dims.width && dims.height) {
+                        screenDimensions[i] = { width: dims.width, height: dims.height };
+                        console.log(`Screen ${i + 1} dimensions loaded:`, dims.width, 'x', dims.height);
+                    }
+                });
+
+                // Listen for new pixels
+                pixelsRef.on('child_added', (snapshot) => {
+                    const key = snapshot.key;
+                    const data = snapshot.val();
+                    if (data) {
+                        screenPixels[i].set(key, {
+                            x: data.x,
+                            y: data.y,
+                            r: data.r || 128,
+                            g: data.g || 128,
+                            b: data.b || 128,
+                            createdAt: data.createdAt || Date.now()
+                        });
+                    }
+                });
+
+                // Listen for drip pixels from Firebase
+                dripsRef.on('child_added', (snapshot) => {
+                    const key = snapshot.key;
+                    const data = snapshot.val();
+                    if (data) {
+                        screenDripPixels[i].set(key, {
+                            x: data.x,
+                            y: data.y,
+                            r: data.r || 128,
+                            g: data.g || 128,
+                            b: data.b || 128,
+                            createdAt: data.createdAt || Date.now()
+                        });
+                    }
+                });
+
+                // Don't listen for child_removed - let local lifecycle cleanup handle it
+                // This ensures display shows full animation even if screen removes pixel early
+
+                // Listen for full clear
+                screenRef.on('value', (snapshot) => {
+                    if (!snapshot.exists() || !snapshot.child('pixels').exists()) {
+                        screenPixels[i].clear();
+                        screenDripPixels[i].clear();
+                        screenDrips[i].length = 0;
+                    }
+                });
+            }
+        }
+
+        // Master cycling logic (display can also be master)
+        function setupMasterCycling() {
+            const masterRef = database.ref('master');
+
+            masterRef.transaction((current) => {
+                if (!current || Date.now() - current.lastHeartbeat > 10000) {
+                    return {
+                        screenId: 'display',
+                        lastHeartbeat: firebase.database.ServerValue.TIMESTAMP
+                    };
+                }
+                return;
+            }).then((result) => {
+                if (result.committed && result.snapshot.val()?.screenId === 'display') {
+                    isMaster = true;
+                    startMasterCycle();
+                }
+            });
+
+            // Heartbeat if we're master
+            setInterval(() => {
+                if (isMaster) {
+                    masterRef.update({
+                        lastHeartbeat: firebase.database.ServerValue.TIMESTAMP
+                    });
+                }
+            }, 5000);
+        }
+
+        function startMasterCycle() {
+            setInterval(() => {
+                if (!isMaster || artworkMetadata.length === 0) return;
+
+                const nextIndex = (currentArtworkIndex + 1) % artworkMetadata.length;
+
+                // Update Firebase
+                currentArtworkRef.set({
+                    index: nextIndex,
+                    lastChanged: firebase.database.ServerValue.TIMESTAMP
+                });
+
+                // Clear all screen pixels and drips
+                database.ref('screens/screen1/pixels').remove();
+                database.ref('screens/screen2/pixels').remove();
+                database.ref('screens/screen3/pixels').remove();
+                database.ref('screens/screen1/drips').remove();
+                database.ref('screens/screen2/drips').remove();
+                database.ref('screens/screen3/drips').remove();
+
+            }, CONFIG.ARTWORK_CYCLE_MS);
+        }
+
+        // Setup artwork change listener (called after auth)
+        function setupArtworkListener() {
+            currentArtworkRef.on('value', (snapshot) => {
+                const data = snapshot.val();
+                if (data && typeof data.index === 'number') {
+                    if (data.index !== currentArtworkIndex) {
+                        currentArtworkIndex = data.index;
+                        clearAllPixels();
+                        loadArtworkImage(currentArtworkIndex);
+                    }
+                }
+            });
+        }
+
+        // Initialize
+        async function init() {
+            loadingEl.textContent = 'Authenticating...';
+
+            // Initialize Firebase with anonymous auth
+            const authSuccess = await initFirebase();
+            if (!authSuccess) {
+                loadingEl.textContent = 'Error: Authentication failed';
+                return;
+            }
+
+            // Set up database references after auth
+            database = firebase.database();
+            currentArtworkRef = database.ref('currentArtwork');
+            screensRef = database.ref('screens');
+
+            // Setup listeners
+            setupArtworkListener();
+
+            loadingEl.textContent = 'Loading artworks...';
+
+            // Resize canvases
+            resizeCanvases();
+
+            // Load artwork metadata
+            artworkMetadata = await loadArtworkMetadata();
+
+            if (artworkMetadata.length === 0) {
+                loadingEl.textContent = 'Error: No artworks loaded';
+                return;
+            }
+
+            // Check current artwork index from Firebase
+            const artworkSnapshot = await currentArtworkRef.once('value');
+            const artworkData = artworkSnapshot.val();
+            if (artworkData && typeof artworkData.index === 'number') {
+                currentArtworkIndex = artworkData.index;
+            } else {
+                await currentArtworkRef.set({
+                    index: 0,
+                    lastChanged: firebase.database.ServerValue.TIMESTAMP
+                });
+            }
+
+            // Load initial artwork
+            loadArtworkImage(currentArtworkIndex);
+
+            // Setup Firebase listeners
+            setupScreenListeners();
+
+            // Setup master cycling
+            setupMasterCycling();
+
+            // Hide loading
+            loadingEl.style.display = 'none';
+
+            // Start drawing
+            draw();
+        }
+
+        // Handle resize
+        window.addEventListener('resize', resizeCanvases);
+
+        // Start
+        init();
+    </script>
 </body>
 </html>

@@ -2,23 +2,24 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Dead Pixels Spread</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>LickMe Touch Screen</title>
     <style>
         * {
             margin: 0;
             padding: 0;
             box-sizing: border-box;
         }
-        
+
         body {
-            background: url('img2.jpg');
+            background-color: #000;
             background-size: cover;
             background-position: center;
             min-height: 100vh;
             overflow: hidden;
+            touch-action: none;
         }
-        
+
         canvas {
             position: fixed;
             top: 0;
@@ -27,321 +28,783 @@
             height: 100%;
             cursor: crosshair;
         }
+
+        #status {
+            position: fixed;
+            top: 10px;
+            left: 10px;
+            color: #fff;
+            font-family: monospace;
+            font-size: 14px;
+            z-index: 100;
+            background: rgba(0,0,0,0.5);
+            padding: 5px 10px;
+            border-radius: 4px;
+        }
     </style>
 </head>
 <body>
+    <div id="status">Connecting...</div>
     <canvas id="canvas"></canvas>
 
+    <!-- Firebase SDK -->
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js"></script>
+
+    <!-- Shared config -->
+    <script src="../shared/firebase-config.private.js"></script>
+    <script src="../shared/firebase-config.js"></script>
+
     <script>
+        // Get screen ID from URL parameter (default to 1)
+        const urlParams = new URLSearchParams(window.location.search);
+        const screenId = urlParams.get('screen') || '1';
+        const screenKey = `screen${screenId}`;
+
+        // Database references (set after auth)
+        let database;
+        let screenRef;
+        let pixelsRef;
+        let dripsRef;
+        let currentArtworkRef;
+
+        // Canvas setup
         const canvas = document.getElementById('canvas');
         const ctx = canvas.getContext('2d');
-        
+        const statusEl = document.getElementById('status');
+
         canvas.width = window.innerWidth;
         canvas.height = window.innerHeight;
-        
-        // Load and draw top image
-        const img = new Image();
-        img.src = 'img1.jpg';
-        img.onload = () => {
-            ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-        };
-        img.onerror = () => {
-            // Fallback if image doesn't load
-            ctx.fillStyle = '#2a2a2a';
-            ctx.fillRect(0, 0, canvas.width, canvas.height);
-        };
-        
-        const pixelSize = 4;
-        const grid = new Map();
-        const dripPixels = new Map();
-        const growthQueue = [];
-        const drips = [];
+
+        // State
+        const pixelSize = CONFIG.PIXEL_SIZE;
+        const localPixels = new Map(); // Local cache of pixels
+        const dripPixels = new Map(); // Drip effect pixels
+        const growthQueue = []; // Queue for spreading growth
+        const drips = []; // Active drips
+        const puddleHeights = new Map(); // Track puddle height at each x position
         let isGrowing = false;
-        let autoClickCount = 0;
-        let expandMode = false;
-        let expansionStopped = false;
-        let frozenTime = null;
-        
-        function addPixel(x, y, centerX, centerY) {
-            const key = `${x},${y}`;
-            if (grid.has(key)) return false;
-            
-            const distance = Math.sqrt(Math.pow(x - centerX, 2) + Math.pow(y - centerY, 2));
-            if (!expandMode && distance > 60) return false;
-            
-            grid.set(key, {x, y, createdAt: Date.now()});
+        let currentArtworkIndex = 0;
+        let artworkMetadata = []; // Loaded from API
+        let currentImage = null;
+        let isMaster = false;
+        let masterCheckDone = false;
+
+        // Offscreen canvas for color sampling
+        let colorSampleCanvas = null;
+        let colorSampleCtx = null;
+
+        // Sample color from the image at given coordinates
+        function sampleColor(x, y) {
+            if (!colorSampleCtx || !currentImage) {
+                return { r: 128, g: 128, b: 128 }; // Default gray
+            }
+            try {
+                // Scale coordinates to sample canvas size
+                const sampleX = Math.floor((x / canvas.width) * colorSampleCanvas.width);
+                const sampleY = Math.floor((y / canvas.height) * colorSampleCanvas.height);
+                const pixel = colorSampleCtx.getImageData(sampleX, sampleY, 1, 1).data;
+                return { r: pixel[0], g: pixel[1], b: pixel[2] };
+            } catch (e) {
+                return { r: 128, g: 128, b: 128 };
+            }
+        }
+
+        // Load artwork metadata from API
+        async function loadArtworkMetadata() {
+            const metadata = [];
+            for (const url of CONFIG.ARTWORKS) {
+                try {
+                    const response = await fetch(url);
+                    if (response.ok) {
+                        const data = await response.json();
+                        metadata.push({
+                            name: data.name,
+                            image: data.image_url
+                        });
+                    }
+                } catch (e) {
+                    console.warn('Failed to load artwork:', url);
+                }
+            }
+            return metadata;
+        }
+
+        // Load and display current artwork image
+        function loadArtworkImage(index) {
+            if (index < 0 || index >= artworkMetadata.length) return;
+
+            const artwork = artworkMetadata[index];
+            if (!artwork || !artwork.image) return;
+
+            // Set background image
+            document.body.style.backgroundImage = `url('${artwork.image}')`;
+
+            // Load image for canvas overlay
+            const img = new Image();
+            img.crossOrigin = 'anonymous';
+            img.src = artwork.image;
+            img.onload = () => {
+                currentImage = img;
+                // Redraw canvas with new image
+                ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+                // Create offscreen canvas for color sampling
+                colorSampleCanvas = document.createElement('canvas');
+                colorSampleCanvas.width = img.width;
+                colorSampleCanvas.height = img.height;
+                colorSampleCtx = colorSampleCanvas.getContext('2d');
+                colorSampleCtx.drawImage(img, 0, 0);
+            };
+            img.onerror = () => {
+                // Fallback to dark background
+                currentImage = null;
+                colorSampleCanvas = null;
+                colorSampleCtx = null;
+                ctx.fillStyle = '#2a2a2a';
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+            };
+        }
+
+        // Clear all pixels (called on artwork change)
+        function clearAllPixels() {
+            localPixels.clear();
+            dripPixels.clear();
+            puddleHeights.clear();
+            growthQueue.length = 0;
+            drips.length = 0;
+            isGrowing = false;
+            // Clear canvas and redraw image
+            if (currentImage) {
+                ctx.drawImage(currentImage, 0, 0, canvas.width, canvas.height);
+            } else {
+                ctx.fillStyle = '#2a2a2a';
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+            }
+        }
+
+        // Add a pixel locally and sync to Firebase
+        // If color is provided, use it; otherwise sample from image
+        function addPixel(x, y, color = null) {
+            const snappedX = Math.floor(x / pixelSize) * pixelSize;
+            const snappedY = Math.floor(y / pixelSize) * pixelSize;
+            const key = `${snappedX}_${snappedY}`;
+
+            if (snappedX < 0 || snappedX >= canvas.width || snappedY < 0 || snappedY >= canvas.height) {
+                return false;
+            }
+
+            if (localPixels.has(key)) return false;
+
+            const now = Date.now();
+            // Use provided color or sample from image
+            const pixelColor = color || sampleColor(snappedX, snappedY);
+
+            const pixelData = {
+                x: snappedX,
+                y: snappedY,
+                r: pixelColor.r,
+                g: pixelColor.g,
+                b: pixelColor.b,
+                createdAt: firebase.database.ServerValue.TIMESTAMP
+            };
+
+            // Add locally with color
+            localPixels.set(key, { x: snappedX, y: snappedY, r: pixelColor.r, g: pixelColor.g, b: pixelColor.b, createdAt: now });
+
+            // Sync to Firebase
+            pixelsRef.child(key).set(pixelData);
+
             return true;
         }
-        
+
+        // Fungus growth algorithm - spreads pixels organically
         function growFungus() {
             if (growthQueue.length === 0) {
                 isGrowing = false;
                 return;
             }
-            
-            const batchSize = 50;
+
+            const batchSize = 40;
             for (let i = 0; i < batchSize && growthQueue.length > 0; i++) {
-                const {x, y, centerX, centerY} = growthQueue.shift();
-                
+                const { x, y, centerX, centerY, maxDistance, color } = growthQueue.shift();
+
                 const directions = [
-                    {dx: pixelSize, dy: 0}, {dx: -pixelSize, dy: 0},
-                    {dx: 0, dy: pixelSize}, {dx: 0, dy: -pixelSize},
-                    {dx: pixelSize, dy: pixelSize}, {dx: -pixelSize, dy: -pixelSize},
-                    {dx: pixelSize, dy: -pixelSize}, {dx: -pixelSize, dy: pixelSize}
+                    { dx: pixelSize, dy: 0 }, { dx: -pixelSize, dy: 0 },
+                    { dx: 0, dy: pixelSize }, { dx: 0, dy: -pixelSize },
+                    { dx: pixelSize, dy: pixelSize }, { dx: -pixelSize, dy: -pixelSize },
+                    { dx: pixelSize, dy: -pixelSize }, { dx: -pixelSize, dy: pixelSize }
                 ];
-                
-                for (let i = directions.length - 1; i > 0; i--) {
-                    const j = Math.floor(Math.random() * (i + 1));
-                    [directions[i], directions[j]] = [directions[j], directions[i]];
+
+                // Shuffle directions for organic look
+                for (let j = directions.length - 1; j > 0; j--) {
+                    const k = Math.floor(Math.random() * (j + 1));
+                    [directions[j], directions[k]] = [directions[k], directions[j]];
                 }
-                
-                for (const {dx, dy} of directions) {
+
+                for (const { dx, dy } of directions) {
                     const newX = x + dx;
                     const newY = y + dy;
-                    
+
                     if (newX < 0 || newX >= canvas.width || newY < 0 || newY >= canvas.height) continue;
-                    
-                    if (expandMode) {
-                        const distFromCenter = Math.sqrt(Math.pow(newX - 300, 2) + Math.pow(newY - 300, 2));
-                        if (distFromCenter > 1000) {
-                            expansionStopped = true;
-                            frozenTime = Date.now();
-                            growthQueue.length = 0;
-                            isGrowing = false;
-                            return;
-                        }
-                    }
-                    
-                    const key = `${newX},${newY}`;
-                    if (grid.has(key)) continue;
-                    
-                    const orthogonalNeighbors = [
-                        `${newX + pixelSize},${newY}`,
-                        `${newX - pixelSize},${newY}`,
-                        `${newX},${newY + pixelSize}`,
-                        `${newX},${newY - pixelSize}`
-                    ].filter(k => grid.has(k)).length;
-                    
-                    const skipChance = expandMode ? 0.75 : 0.6;
-                    if (orthogonalNeighbors > 0 && Math.random() < skipChance) continue;
-                    
+
+                    const key = `${newX}_${newY}`;
+                    if (localPixels.has(key)) continue;
+
+                    // Check distance from center to limit spread per touch
                     const distance = Math.sqrt(Math.pow(newX - centerX, 2) + Math.pow(newY - centerY, 2));
-                    if (!expandMode && distance > 60) continue;
-                    
-                    const growthChance = Math.random() < (expandMode ? 0.2 : 0.3);
-                    
-                    if (growthChance && addPixel(newX, newY, centerX, centerY)) {
-                        if (Math.random() < (expandMode ? 0.6 : 0.7)) {
-                            growthQueue.push({x: newX, y: newY, centerX, centerY});
+                    if (distance > maxDistance) continue;
+
+                    // Random skip for organic edges
+                    const orthogonalNeighbors = [
+                        `${newX + pixelSize}_${newY}`,
+                        `${newX - pixelSize}_${newY}`,
+                        `${newX}_${newY + pixelSize}`,
+                        `${newX}_${newY - pixelSize}`
+                    ].filter(k => localPixels.has(k)).length;
+
+                    if (orthogonalNeighbors > 1 && Math.random() < 0.5) continue;
+
+                    // Growth chance - pass the inherited color
+                    if (Math.random() < 0.4 && addPixel(newX, newY, color)) {
+                        if (Math.random() < 0.75) {
+                            growthQueue.push({ x: newX, y: newY, centerX, centerY, maxDistance, color });
                         }
                     }
                 }
             }
-            
+
             requestAnimationFrame(growFungus);
         }
-        
+
+        // Find pixels on the edge of the growth
         function findEdgePixels() {
             const edgePixels = [];
-            grid.forEach((pixel) => {
+            localPixels.forEach((pixel, key) => {
                 const neighbors = [
-                    `${pixel.x + pixelSize},${pixel.y}`, `${pixel.x - pixelSize},${pixel.y}`,
-                    `${pixel.x},${pixel.y + pixelSize}`, `${pixel.x},${pixel.y - pixelSize}`,
-                    `${pixel.x + pixelSize},${pixel.y + pixelSize}`, `${pixel.x - pixelSize},${pixel.y - pixelSize}`,
-                    `${pixel.x + pixelSize},${pixel.y - pixelSize}`, `${pixel.x - pixelSize},${pixel.y + pixelSize}`
+                    `${pixel.x + pixelSize}_${pixel.y}`, `${pixel.x - pixelSize}_${pixel.y}`,
+                    `${pixel.x}_${pixel.y + pixelSize}`, `${pixel.x}_${pixel.y - pixelSize}`
                 ];
-                if (neighbors.some(nKey => !grid.has(nKey))) {
+                if (neighbors.some(nKey => !localPixels.has(nKey))) {
                     edgePixels.push(pixel);
                 }
             });
             return edgePixels;
         }
-        
+
+        // Update drips - creates falling effect from edge pixels with puddle stacking
         function updateDrips() {
-            if (expandMode && !expansionStopped && Math.random() < 0.01) {
+            // Spawn fewer but heavier drips
+            if (Math.random() < 0.02 && localPixels.size > 10) {
                 const edgePixels = findEdgePixels();
                 const bottomEdges = edgePixels.filter(p => {
-                    const below = `${p.x},${p.y + pixelSize}`;
-                    return !grid.has(below) && p.y < canvas.height - 100;
+                    const below = `${p.x}_${p.y + pixelSize}`;
+                    return !localPixels.has(below) && p.y < canvas.height - 100;
                 });
-                
+
                 if (bottomEdges.length > 0) {
                     const dripSource = bottomEdges[Math.floor(Math.random() * bottomEdges.length)];
-                    drips.push({x: dripSource.x, y: dripSource.y + pixelSize, speed: 2 + Math.random() * 2, createdAt: Date.now()});
+                    // Heavy drip - carries lots of "material" to deposit gradually
+                    drips.push({
+                        x: dripSource.x,
+                        y: dripSource.y + pixelSize,
+                        speed: 6 + Math.random() * 4,
+                        color: { r: dripSource.r || 128, g: dripSource.g || 128, b: dripSource.b || 128 },
+                        payload: 70 + Math.floor(Math.random() * 50), // Large payload
+                        pooling: false, // Not yet pooling at bottom
+                        createdAt: Date.now()
+                    });
                 }
             }
-            
+
+            // Update existing drips
+            // Floor is at the bottom of canvas, snapped to grid
+            const floorY = Math.floor(canvas.height / pixelSize) * pixelSize - pixelSize;
+
             for (let i = drips.length - 1; i >= 0; i--) {
                 const drip = drips[i];
                 drip.y += drip.speed;
-                
+
                 const snappedX = Math.floor(drip.x / pixelSize) * pixelSize;
                 const snappedY = Math.floor(drip.y / pixelSize) * pixelSize;
-                const key = `${snappedX},${snappedY}`;
-                
-                if (!dripPixels.has(key) && snappedY >= 0 && snappedY < canvas.height) {
-                    dripPixels.set(key, {x: snappedX, y: snappedY, createdAt: Date.now()});
+
+                // Check what's at the drip's current position or below
+                const currentKey = `${snappedX}_${snappedY}`;
+                const belowKey = `${snappedX}_${snappedY + pixelSize}`;
+                const atFloor = snappedY >= floorY;
+                const hitPile = dripPixels.has(currentKey) || dripPixels.has(belowKey);
+
+                // Track trail positions for visual rendering (not stored permanently)
+                if (!drip.trail) drip.trail = [];
+                drip.trail.push({ x: snappedX, y: snappedY });
+                // Keep trail limited in length
+                if (drip.trail.length > 50) drip.trail.shift();
+
+                if (atFloor || hitPile) {
+                    // Start pooling - drip stays and gradually deposits payload
+                    drip.pooling = true;
+                    drip.poolX = snappedX;
+                    drip.y = floorY; // Stay at floor level
                 }
-                
-                if (drip.y >= canvas.height) drips.splice(i, 1);
-            }
-        }
-        
-        function triggerSpread(clientX, clientY) {
-            const centerX = Math.floor(clientX / pixelSize) * pixelSize;
-            const centerY = Math.floor(clientY / pixelSize) * pixelSize;
-            
-            let nearExisting = false;
-            for (const [key, pixel] of grid) {
-                const distance = Math.sqrt(Math.pow(pixel.x - centerX, 2) + Math.pow(pixel.y - centerY, 2));
-                if (distance < 80) {
-                    nearExisting = true;
-                    if (Math.random() < 0.7) {
-                        growthQueue.push({x: pixel.x, y: pixel.y, centerX: pixel.x, centerY: pixel.y});
+
+                // If drip is pooling, gradually deposit payload
+                if (drip.pooling && drip.payload > 0) {
+                    const color = drip.color;
+                    const now = Date.now();
+
+                    // Deposit a few grains per frame for gradual effect
+                    const grainsPerFrame = 3 + Math.floor(Math.random() * 3);
+
+                    for (let p = 0; p < grainsPerFrame && drip.payload > 0; p++) {
+                        drip.payload--;
+
+                        // Start at drip position and flow downhill
+                        let settleX = drip.poolX;
+                        let settleY = floorY;
+
+                        // Find current height at drip position
+                        while (settleY >= 0 && dripPixels.has(`${settleX}_${settleY}`)) {
+                            settleY -= pixelSize;
+                        }
+
+                        // Flow downhill - keep rolling towards lower side
+                        for (let roll = 0; roll < 50; roll++) {
+                            const leftX = settleX - pixelSize;
+                            const rightX = settleX + pixelSize;
+
+                            // Find height of adjacent columns
+                            let leftY = floorY;
+                            if (leftX >= 0) {
+                                while (leftY >= 0 && dripPixels.has(`${leftX}_${leftY}`)) leftY -= pixelSize;
+                            } else {
+                                leftY = -999; // Off screen, can't go there
+                            }
+
+                            let rightY = floorY;
+                            if (rightX < canvas.width) {
+                                while (rightY >= 0 && dripPixels.has(`${rightX}_${rightY}`)) rightY -= pixelSize;
+                            } else {
+                                rightY = -999; // Off screen, can't go there
+                            }
+
+                            // Roll towards the lower side (higher Y = lower position)
+                            // Add randomness: 5% chance to settle early, 10% chance to pick random direction
+                            if (Math.random() < 0.05) {
+                                break; // Random early settle
+                            } else if (Math.random() < 0.1 && (leftY > settleY || rightY > settleY)) {
+                                // Random direction instead of lowest
+                                if (leftY > settleY && rightY > settleY) {
+                                    if (Math.random() < 0.3) { settleX = leftX; settleY = leftY; }
+                                    else { settleX = rightX; settleY = rightY; }
+                                } else if (leftY > settleY) { settleX = leftX; settleY = leftY; }
+                                else { settleX = rightX; settleY = rightY; }
+                            } else if (leftY > settleY && leftY >= rightY) {
+                                settleX = leftX;
+                                settleY = leftY;
+                            } else if (rightY > settleY) {
+                                settleX = rightX;
+                                settleY = rightY;
+                            } else {
+                                // Can't roll further, settle here
+                                break;
+                            }
+                        }
+
+                        // Place the grain
+                        const settleKey = `${settleX}_${settleY}`;
+                        if (settleY >= 0 && !dripPixels.has(settleKey)) {
+                            dripPixels.set(settleKey, { x: settleX, y: settleY, r: color.r, g: color.g, b: color.b, createdAt: now });
+
+                            // Sync to Firebase
+                            dripsRef.child(settleKey).set({
+                                x: settleX,
+                                y: settleY,
+                                r: color.r,
+                                g: color.g,
+                                b: color.b,
+                                createdAt: firebase.database.ServerValue.TIMESTAMP
+                            });
+                        }
+                    }
+
+                    // Remove drip when payload is empty
+                    if (drip.payload <= 0) {
+                        drips.splice(i, 1);
                     }
                 }
             }
-            
-            const seedCount = nearExisting ? 80 : 20;
-            const seedDistance = nearExisting ? 8 : 3;
-            
-            addPixel(centerX, centerY, centerX, centerY);
-            
-            for (let i = 0; i < seedCount; i++) {
-                const angle = (Math.PI * 2 / seedCount) * i;
-                const distance = pixelSize * (2 + Math.floor(Math.random() * seedDistance));
-                const x = Math.floor((centerX + Math.cos(angle) * distance) / pixelSize) * pixelSize;
-                const y = Math.floor((centerY + Math.sin(angle) * distance) / pixelSize) * pixelSize;
-                
-                if (addPixel(x, y, centerX, centerY)) {
-                    growthQueue.push({x, y, centerX, centerY});
+        }
+
+        // Spread effect from a touch point
+        function triggerSpread(clientX, clientY) {
+            const centerX = Math.floor(clientX / pixelSize) * pixelSize;
+            const centerY = Math.floor(clientY / pixelSize) * pixelSize;
+
+            // Sample color at the touch point - this color will spread outward
+            const touchColor = sampleColor(centerX, centerY);
+
+            // Reasonable spread distance per touch
+            const maxDistance = 120;
+
+            // Find edge pixels near the touch point to expand from
+            const edgePixelsNearby = [];
+            for (const [key, pixel] of localPixels) {
+                const distance = Math.sqrt(Math.pow(pixel.x - centerX, 2) + Math.pow(pixel.y - centerY, 2));
+                if (distance < 80) {
+                    // Check if this is an edge pixel
+                    const neighbors = [
+                        `${pixel.x + pixelSize}_${pixel.y}`,
+                        `${pixel.x - pixelSize}_${pixel.y}`,
+                        `${pixel.x}_${pixel.y + pixelSize}`,
+                        `${pixel.x}_${pixel.y - pixelSize}`
+                    ];
+                    const hasEmptyNeighbor = neighbors.some(n => !localPixels.has(n));
+                    if (hasEmptyNeighbor) {
+                        edgePixelsNearby.push(pixel);
+                    }
                 }
             }
-            
-            if (!isGrowing) {
+
+            // If touching near existing pixels, expand from their edges
+            if (edgePixelsNearby.length > 0) {
+                // Pick some edge pixels to expand from - use the touch color
+                const expandCount = Math.min(edgePixelsNearby.length, 10);
+                for (let i = 0; i < expandCount; i++) {
+                    const pixel = edgePixelsNearby[Math.floor(Math.random() * edgePixelsNearby.length)];
+                    growthQueue.push({
+                        x: pixel.x,
+                        y: pixel.y,
+                        centerX: pixel.x,
+                        centerY: pixel.y,
+                        maxDistance,
+                        color: touchColor
+                    });
+                }
+            } else {
+                // New cluster - add center and seeds with the touch color
+                addPixel(centerX, centerY, touchColor);
+
+                const seedCount = 8;
+                for (let i = 0; i < seedCount; i++) {
+                    const angle = (Math.PI * 2 / seedCount) * i + Math.random() * 0.3;
+                    const dist = pixelSize * (1 + Math.floor(Math.random() * 3));
+                    const x = centerX + Math.cos(angle) * dist;
+                    const y = centerY + Math.sin(angle) * dist;
+
+                    if (addPixel(x, y, touchColor)) {
+                        growthQueue.push({
+                            x: Math.floor(x / pixelSize) * pixelSize,
+                            y: Math.floor(y / pixelSize) * pixelSize,
+                            centerX,
+                            centerY,
+                            maxDistance,
+                            color: touchColor
+                        });
+                    }
+                }
+            }
+
+            // Start growth if not already running
+            if (!isGrowing && growthQueue.length > 0) {
                 isGrowing = true;
                 growFungus();
             }
         }
-        
+
+        // Touch event handlers
+        function handleTouch(e) {
+            e.preventDefault();
+            for (const touch of e.changedTouches) {
+                triggerSpread(touch.clientX, touch.clientY);
+            }
+        }
+
+        function handleTouchEnd(e) {
+            e.preventDefault();
+        }
+
+        // Mouse fallback for testing
+        function handleMouseMove(e) {
+            if (e.buttons === 1) { // Left button held
+                triggerSpread(e.clientX, e.clientY);
+            }
+        }
+
+        function handleClick(e) {
+            triggerSpread(e.clientX, e.clientY);
+        }
+
+        // Drawing loop
         function draw() {
+            const currentTime = Date.now();
+
+            // Update drips
             updateDrips();
-            
-            const currentTime = expansionStopped ? frozenTime : Date.now();
-            const whiteToBlackTime = 5000; // 5 seconds white to black
-            const burnThroughTime = 10000; // 10 seconds total - burns through at 5 seconds
-            
-            grid.forEach(pixel => {
+
+            // Draw base image first
+            if (currentImage) {
+                ctx.drawImage(currentImage, 0, 0, canvas.width, canvas.height);
+            }
+
+            // Draw pixels - fade from white to sampled color, then stay
+            localPixels.forEach((pixel, key) => {
                 const age = currentTime - pixel.createdAt;
-                
-                if (age < whiteToBlackTime) {
-                    // White to black
-                    const ratio = age / whiteToBlackTime;
-                    const colorValue = Math.floor(255 - (ratio * 255));
-                    ctx.fillStyle = `rgb(${colorValue}, ${colorValue}, ${colorValue})`;
-                    ctx.fillRect(pixel.x, pixel.y, pixelSize, pixelSize);
-                } else if (age < burnThroughTime) {
-                    // Burn through
-                    const burnRatio = (age - whiteToBlackTime) / (burnThroughTime - whiteToBlackTime);
-                    const alpha = 1 - burnRatio;
-                    ctx.fillStyle = `rgba(0, 0, 0, ${alpha})`;
+                const r = pixel.r || 128;
+                const g = pixel.g || 128;
+                const b = pixel.b || 128;
+
+                if (age < CONFIG.WHITE_TO_BLACK_MS) {
+                    // White to sampled color transition
+                    const ratio = age / CONFIG.WHITE_TO_BLACK_MS;
+                    const pr = Math.floor(255 - (ratio * (255 - r)));
+                    const pg = Math.floor(255 - (ratio * (255 - g)));
+                    const pb = Math.floor(255 - (ratio * (255 - b)));
+                    ctx.fillStyle = `rgb(${pr}, ${pg}, ${pb})`;
                     ctx.fillRect(pixel.x, pixel.y, pixelSize, pixelSize);
                 } else {
-                    // Clear to reveal purple
-                    ctx.clearRect(pixel.x, pixel.y, pixelSize, pixelSize);
+                    // Stay at sampled color
+                    ctx.fillStyle = `rgb(${r}, ${g}, ${b})`;
+                    ctx.fillRect(pixel.x, pixel.y, pixelSize, pixelSize);
                 }
             });
-            
-            dripPixels.forEach(pixel => {
+
+            // Draw drip pixels - fade from white to sampled color, then stay
+            dripPixels.forEach((pixel, key) => {
                 const age = currentTime - pixel.createdAt;
-                
-                if (age < whiteToBlackTime) {
-                    const ratio = age / whiteToBlackTime;
-                    const colorValue = Math.floor(255 - (ratio * 255));
-                    ctx.fillStyle = `rgb(${colorValue}, ${colorValue}, ${colorValue})`;
-                    ctx.fillRect(pixel.x, pixel.y, pixelSize, pixelSize);
-                } else if (age < burnThroughTime) {
-                    const burnRatio = (age - whiteToBlackTime) / (burnThroughTime - whiteToBlackTime);
-                    const alpha = 1 - burnRatio;
-                    ctx.fillStyle = `rgba(0, 0, 0, ${alpha})`;
+                const r = pixel.r || 128;
+                const g = pixel.g || 128;
+                const b = pixel.b || 128;
+
+                if (age < CONFIG.WHITE_TO_BLACK_MS) {
+                    // White to sampled color transition
+                    const ratio = age / CONFIG.WHITE_TO_BLACK_MS;
+                    const pr = Math.floor(255 - (ratio * (255 - r)));
+                    const pg = Math.floor(255 - (ratio * (255 - g)));
+                    const pb = Math.floor(255 - (ratio * (255 - b)));
+                    ctx.fillStyle = `rgb(${pr}, ${pg}, ${pb})`;
                     ctx.fillRect(pixel.x, pixel.y, pixelSize, pixelSize);
                 } else {
-                    ctx.clearRect(pixel.x, pixel.y, pixelSize, pixelSize);
+                    // Stay at sampled color
+                    ctx.fillStyle = `rgb(${r}, ${g}, ${b})`;
+                    ctx.fillRect(pixel.x, pixel.y, pixelSize, pixelSize);
                 }
             });
-            
-            ctx.fillStyle = '#ffffff';
-            ctx.font = '20px Arial';
-            ctx.fillText(`Clicks: ${autoClickCount}${expandMode ? (expansionStopped ? ' - STOPPED' : ' - EXPANDING') : '/20'}`, 10, 30);
-            
+
+            // Draw active drip trails (temporary, not stored)
+            drips.forEach(drip => {
+                if (drip.trail && drip.color) {
+                    const r = drip.color.r;
+                    const g = drip.color.g;
+                    const b = drip.color.b;
+                    drip.trail.forEach((pos, idx) => {
+                        // Fade trail from transparent at top to solid at bottom
+                        const alpha = (idx / drip.trail.length);
+                        ctx.fillStyle = `rgba(${r}, ${g}, ${b}, ${alpha})`;
+                        ctx.fillRect(pos.x, pos.y, pixelSize, pixelSize);
+                    });
+                }
+            });
+
+            // Update status
+            // Debug: show first drip position
+            let dripDebug = '';
+            if (dripPixels.size > 0) {
+                const firstDrip = dripPixels.values().next().value;
+                dripDebug = ` | FirstDrip: ${firstDrip.x},${firstDrip.y}`;
+            }
+            statusEl.textContent = `Screen ${screenId} | Pixels: ${localPixels.size} | Drips: ${dripPixels.size} | H:${canvas.height}${dripDebug}${isMaster ? ' (Master)' : ''}`;
+
             requestAnimationFrame(draw);
         }
-        
-        draw();
-        
-        const maxAutoClicks = 20;
-        
-        function doAutoSpread() {
-            if (autoClickCount >= maxAutoClicks) {
-                expandMode = true;
-                
-                const expandInterval = setInterval(() => {
-                    if (expansionStopped) {
-                        clearInterval(expandInterval);
-                        return;
-                    }
-                    
-                    const edgePixels = findEdgePixels();
-                    if (edgePixels.length === 0) {
-                        expansionStopped = true;
-                        frozenTime = Date.now();
-                        clearInterval(expandInterval);
-                        return;
-                    }
-                    
-                    const selectedEdges = edgePixels.filter(() => Math.random() < 0.5);
-                    selectedEdges.forEach(pixel => {
-                        if (Math.random() < 0.7) {
-                            growthQueue.push({x: pixel.x, y: pixel.y, centerX: pixel.x, centerY: pixel.y});
-                        }
+
+        // Artwork cycling - master logic
+        function setupMasterCycling() {
+            // Check if we should be master (first one to claim it)
+            const masterRef = database.ref('master');
+
+            masterRef.transaction((current) => {
+                if (!current || Date.now() - current.lastHeartbeat > 10000) {
+                    // No master or master is stale, claim it
+                    return {
+                        screenId: screenKey,
+                        lastHeartbeat: firebase.database.ServerValue.TIMESTAMP
+                    };
+                }
+                return; // Abort - master exists
+            }).then((result) => {
+                if (result.committed && result.snapshot.val()?.screenId === screenKey) {
+                    isMaster = true;
+                    startMasterCycle();
+                }
+                masterCheckDone = true;
+            });
+
+            // Heartbeat if we're master
+            setInterval(() => {
+                if (isMaster) {
+                    masterRef.update({
+                        lastHeartbeat: firebase.database.ServerValue.TIMESTAMP
                     });
-                    
-                    if (!isGrowing && growthQueue.length > 0) {
-                        isGrowing = true;
-                        growFungus();
+                }
+            }, 5000);
+        }
+
+        function startMasterCycle() {
+            // Cycle artwork every 60 seconds
+            setInterval(() => {
+                if (!isMaster || artworkMetadata.length === 0) return;
+
+                const nextIndex = (currentArtworkIndex + 1) % artworkMetadata.length;
+
+                // Update Firebase (this triggers change for all screens)
+                currentArtworkRef.set({
+                    index: nextIndex,
+                    lastChanged: firebase.database.ServerValue.TIMESTAMP
+                });
+
+                // Clear pixels and drips in Firebase
+                pixelsRef.remove();
+                dripsRef.remove();
+                database.ref('screens/screen1/pixels').remove();
+                database.ref('screens/screen2/pixels').remove();
+                database.ref('screens/screen3/pixels').remove();
+                database.ref('screens/screen1/drips').remove();
+                database.ref('screens/screen2/drips').remove();
+                database.ref('screens/screen3/drips').remove();
+
+            }, CONFIG.ARTWORK_CYCLE_MS);
+        }
+
+        // Setup Firebase listeners (called after auth)
+        function setupFirebaseListeners() {
+            // Listen for artwork changes
+            currentArtworkRef.on('value', (snapshot) => {
+                const data = snapshot.val();
+                if (data && typeof data.index === 'number') {
+                    if (data.index !== currentArtworkIndex) {
+                        currentArtworkIndex = data.index;
+                        clearAllPixels();
+                        loadArtworkImage(currentArtworkIndex);
                     }
-                    
-                    autoClickCount++;
-                }, 100);
-                
+                }
+            });
+
+            // Listen for pixel updates from Firebase (for sync)
+            pixelsRef.on('child_added', (snapshot) => {
+                const key = snapshot.key;
+                const data = snapshot.val();
+                if (!localPixels.has(key) && data) {
+                    localPixels.set(key, {
+                        x: data.x,
+                        y: data.y,
+                        r: data.r || 128,
+                        g: data.g || 128,
+                        b: data.b || 128,
+                        createdAt: data.createdAt || Date.now()
+                    });
+                }
+            });
+
+            pixelsRef.on('child_removed', (snapshot) => {
+                localPixels.delete(snapshot.key);
+            });
+
+            // Listen for full clear
+            screenRef.on('value', (snapshot) => {
+                if (!snapshot.exists() || !snapshot.child('pixels').exists()) {
+                    localPixels.clear();
+                }
+            });
+        }
+
+        // Initialize
+        async function init() {
+            statusEl.textContent = 'Authenticating...';
+
+            // Initialize Firebase with anonymous auth
+            const authSuccess = await initFirebase();
+            if (!authSuccess) {
+                statusEl.textContent = 'Error: Authentication failed';
                 return;
             }
-            
-            triggerSpread(300 + (Math.random() - 0.5) * 20, 300 + (Math.random() - 0.5) * 20);
-            autoClickCount++;
-            
-            if (autoClickCount < maxAutoClicks) {
-                setTimeout(doAutoSpread, 200);
-            } else {
-                setTimeout(doAutoSpread, 200);
+
+            // Set up database references after auth
+            database = firebase.database();
+            screenRef = database.ref(`screens/${screenKey}`);
+            pixelsRef = screenRef.child('pixels');
+            dripsRef = screenRef.child('drips');
+            currentArtworkRef = database.ref('currentArtwork');
+
+            // Setup Firebase listeners
+            setupFirebaseListeners();
+
+            statusEl.textContent = 'Loading artworks...';
+
+            // Load artwork metadata
+            artworkMetadata = await loadArtworkMetadata();
+
+            if (artworkMetadata.length === 0) {
+                statusEl.textContent = 'Error: No artworks loaded';
+                return;
             }
+
+            // Check current artwork index from Firebase
+            const artworkSnapshot = await currentArtworkRef.once('value');
+            const artworkData = artworkSnapshot.val();
+            if (artworkData && typeof artworkData.index === 'number') {
+                currentArtworkIndex = artworkData.index;
+            } else {
+                // Initialize if not set
+                await currentArtworkRef.set({
+                    index: 0,
+                    lastChanged: firebase.database.ServerValue.TIMESTAMP
+                });
+            }
+
+            // Load initial artwork
+            loadArtworkImage(currentArtworkIndex);
+
+            // Setup event listeners
+            canvas.addEventListener('touchstart', handleTouch, { passive: false });
+            canvas.addEventListener('touchmove', handleTouch, { passive: false });
+            canvas.addEventListener('touchend', handleTouchEnd, { passive: false });
+            canvas.addEventListener('click', handleClick);
+            canvas.addEventListener('mousemove', handleMouseMove);
+
+            // Report screen dimensions to Firebase for display scaling
+            screenRef.child('dimensions').set({
+                width: canvas.width,
+                height: canvas.height
+            });
+
+            // Setup master cycling
+            setupMasterCycling();
+
+            // Start drawing
+            draw();
+
+            statusEl.textContent = `Screen ${screenId} | Ready`;
         }
-        
-        doAutoSpread();
-        
-        canvas.addEventListener('click', (e) => {
-            triggerSpread(e.clientX, e.clientY);
-        });
-        
+
+        // Handle resize
         window.addEventListener('resize', () => {
-            const wasGray = ctx.getImageData(0, 0, 1, 1).data[0] === 42;
             canvas.width = window.innerWidth;
             canvas.height = window.innerHeight;
-            if (wasGray) {
-                ctx.fillStyle = '#2a2a2a';
-                ctx.fillRect(0, 0, canvas.width, canvas.height);
+            if (currentImage) {
+                ctx.drawImage(currentImage, 0, 0, canvas.width, canvas.height);
+            }
+            // Update dimensions in Firebase
+            if (screenRef) {
+                screenRef.child('dimensions').set({
+                    width: canvas.width,
+                    height: canvas.height
+                });
             }
         });
+
+        // Start
+        init();
     </script>
 </body>
 </html>
