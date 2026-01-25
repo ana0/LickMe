@@ -650,30 +650,109 @@
             }, 5000);
         }
 
-        function startMasterCycle() {
-            // Cycle artwork every 60 seconds
-            setInterval(() => {
-                if (!isMaster || artworkMetadata.length === 0) return;
+        // Query Objkt.com for latest sale event
+        async function getLatestSaleEvent() {
+            const query = `
+                query {
+                    event(
+                        where: {
+                            marketplace_event_type: {
+                                _in: ["list_buy", "english_auction_settle", "dutch_auction_buy", "offer_accept", "offer_floor_accept"]
+                            }
+                        }
+                        order_by: {timestamp: desc}
+                        limit: 1
+                    ) {
+                        id
+                        timestamp
+                        ophash
+                        price_xtz
+                        marketplace_event_type
+                    }
+                }
+            `;
 
-                const nextIndex = (currentArtworkIndex + 1) % artworkMetadata.length;
-
-                // Update Firebase (this triggers change for all screens)
-                currentArtworkRef.set({
-                    index: nextIndex,
-                    lastChanged: firebase.database.ServerValue.TIMESTAMP
+            try {
+                const response = await fetch(CONFIG.OBJKT_GRAPHQL_ENDPOINT, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ query })
                 });
 
-                // Clear pixels and drips in Firebase
-                pixelsRef.remove();
-                dripsRef.remove();
-                database.ref('screens/screen1/pixels').remove();
-                database.ref('screens/screen2/pixels').remove();
-                database.ref('screens/screen3/pixels').remove();
-                database.ref('screens/screen1/drips').remove();
-                database.ref('screens/screen2/drips').remove();
-                database.ref('screens/screen3/drips').remove();
+                if (!response.ok) {
+                    console.error('Objkt API error:', response.status);
+                    return null;
+                }
 
-            }, CONFIG.ARTWORK_CYCLE_MS);
+                const data = await response.json();
+                const event = data?.data?.event?.[0] || null;
+
+                if (event) {
+                    console.log('Latest sale event:', {
+                        id: event.id,
+                        type: event.marketplace_event_type,
+                        price: event.price_xtz ? `${event.price_xtz} XTZ` : 'N/A',
+                        timestamp: new Date(event.timestamp).toLocaleString(),
+                        ophash: event.ophash
+                    });
+                }
+
+                return event;
+            } catch (error) {
+                console.error('Failed to fetch latest sale event:', error);
+                return null;
+            }
+        }
+
+        function startMasterCycle() {
+            let lastEventId = null;
+            let isFirstPoll = true;
+
+            // Poll for new sale events
+            setInterval(async () => {
+                if (!isMaster || artworkMetadata.length === 0) return;
+
+                const latestEvent = await getLatestSaleEvent();
+                if (!latestEvent) return;
+
+                // Initialize tracking on first poll
+                if (isFirstPoll) {
+                    lastEventId = latestEvent.id;
+                    console.log('🎨 Starting artwork cycling on sales. Watching for new events...');
+                    isFirstPoll = false;
+                    return;
+                }
+
+                // Check if this is a new sale event (different id)
+                if (latestEvent.id !== lastEventId) {
+                    console.log('🔔 NEW SALE DETECTED! Switching artwork...');
+                    console.log('   Type:', latestEvent.marketplace_event_type);
+                    console.log('   Price:', latestEvent.price_xtz, 'XTZ');
+                    console.log('   Event ID:', latestEvent.id);
+
+                    const nextIndex = (currentArtworkIndex + 1) % artworkMetadata.length;
+
+                    // Update Firebase (this triggers change for all screens)
+                    currentArtworkRef.set({
+                        index: nextIndex,
+                        lastChanged: firebase.database.ServerValue.TIMESTAMP
+                    });
+
+                    // Clear pixels and drips in Firebase
+                    pixelsRef.remove();
+                    dripsRef.remove();
+                    database.ref('screens/screen1/pixels').remove();
+                    database.ref('screens/screen2/pixels').remove();
+                    database.ref('screens/screen3/pixels').remove();
+                    database.ref('screens/screen1/drips').remove();
+                    database.ref('screens/screen2/drips').remove();
+                    database.ref('screens/screen3/drips').remove();
+
+                    // Update last known event
+                    lastEventId = latestEvent.id;
+                }
+
+            }, CONFIG.OBJKT_POLL_INTERVAL_MS);
         }
 
         // Setup Firebase listeners (called after auth)

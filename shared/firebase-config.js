@@ -50,8 +50,11 @@ const CONFIG = {
   ],
 
   // Timing
-  ARTWORK_CYCLE_MS: 60000, // 60 seconds
+  OBJKT_POLL_INTERVAL_MS: 5000, // Poll Objkt.com every 5 seconds for sales
   PIXEL_CLEANUP_AGE_MS: 15000, // Clean pixels older than 15 seconds
+
+  // Objkt.com API
+  OBJKT_GRAPHQL_ENDPOINT: 'https://data.objkt.com/v3/graphql',
 
   // Visual settings
   PIXEL_SIZE: 4,

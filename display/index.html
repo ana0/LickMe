@@ -446,27 +446,83 @@
             }, 5000);
         }
 
-        function startMasterCycle() {
-            setInterval(() => {
-                if (!isMaster || artworkMetadata.length === 0) return;
+        // Query Objkt.com for latest sale event
+        async function getLatestSaleEvent() {
+            const query = `
+                query {
+                    event(
+                        where: {
+                            marketplace_event_type: {
+                                _in: ["list_buy", "english_auction_settle", "dutch_auction_buy", "offer_accept", "offer_floor_accept"]
+                            }
+                        }
+                        order_by: {timestamp: desc}
+                        limit: 1
+                    ) {
+                        id
+                        timestamp
+                        ophash
+                        price_xtz
+                        marketplace_event_type
+                    }
+                }
+            `;
 
-                const nextIndex = (currentArtworkIndex + 1) % artworkMetadata.length;
-
-                // Update Firebase
-                currentArtworkRef.set({
-                    index: nextIndex,
-                    lastChanged: firebase.database.ServerValue.TIMESTAMP
+            try {
+                const response = await fetch(CONFIG.OBJKT_GRAPHQL_ENDPOINT, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ query })
                 });
 
-                // Clear all screen pixels and drips
-                database.ref('screens/screen1/pixels').remove();
-                database.ref('screens/screen2/pixels').remove();
-                database.ref('screens/screen3/pixels').remove();
-                database.ref('screens/screen1/drips').remove();
-                database.ref('screens/screen2/drips').remove();
-                database.ref('screens/screen3/drips').remove();
+                if (!response.ok) {
+                    console.error('Objkt API error:', response.status);
+                    return null;
+                }
 
-            }, CONFIG.ARTWORK_CYCLE_MS);
+                const data = await response.json();
+                return data?.data?.event?.[0] || null;
+            } catch (error) {
+                console.error('Failed to fetch latest sale event:', error);
+                return null;
+            }
+        }
+
+        function startMasterCycle() {
+            let lastEventId = null;
+
+            // Poll for new sale events
+            setInterval(async () => {
+                if (!isMaster || artworkMetadata.length === 0) return;
+
+                const latestEvent = await getLatestSaleEvent();
+                if (!latestEvent) return;
+
+                // Check if this is a new sale event (different id)
+                if (lastEventId && latestEvent.id !== lastEventId) {
+                    console.log('New sale detected!', latestEvent.marketplace_event_type, latestEvent.price_xtz, 'XTZ');
+
+                    const nextIndex = (currentArtworkIndex + 1) % artworkMetadata.length;
+
+                    // Update Firebase
+                    currentArtworkRef.set({
+                        index: nextIndex,
+                        lastChanged: firebase.database.ServerValue.TIMESTAMP
+                    });
+
+                    // Clear all screen pixels and drips
+                    database.ref('screens/screen1/pixels').remove();
+                    database.ref('screens/screen2/pixels').remove();
+                    database.ref('screens/screen3/pixels').remove();
+                    database.ref('screens/screen1/drips').remove();
+                    database.ref('screens/screen2/drips').remove();
+                    database.ref('screens/screen3/drips').remove();
+                }
+
+                // Update last known event
+                lastEventId = latestEvent.id;
+
+            }, CONFIG.OBJKT_POLL_INTERVAL_MS);
         }
 
         // Setup artwork change listener (called after auth)
