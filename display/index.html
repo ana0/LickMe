@@ -481,7 +481,19 @@
                 }
 
                 const data = await response.json();
-                return data?.data?.event?.[0] || null;
+                const event = data?.data?.event?.[0] || null;
+
+                if (event) {
+                    console.log('Latest sale event:', {
+                        id: event.id,
+                        type: event.marketplace_event_type,
+                        price: event.price_xtz ? `${event.price_xtz} XTZ` : 'N/A',
+                        timestamp: new Date(event.timestamp).toLocaleString(),
+                        ophash: event.ophash
+                    });
+                }
+
+                return event;
             } catch (error) {
                 console.error('Failed to fetch latest sale event:', error);
                 return null;
@@ -490,6 +502,7 @@
 
         function startMasterCycle() {
             let lastEventId = null;
+            let isFirstPoll = true;
 
             // Poll for new sale events
             setInterval(async () => {
@@ -498,9 +511,20 @@
                 const latestEvent = await getLatestSaleEvent();
                 if (!latestEvent) return;
 
+                // Initialize tracking on first poll
+                if (isFirstPoll) {
+                    lastEventId = latestEvent.id;
+                    console.log('🎨 Starting artwork cycling on sales. Watching for new events...');
+                    isFirstPoll = false;
+                    return;
+                }
+
                 // Check if this is a new sale event (different id)
-                if (lastEventId && latestEvent.id !== lastEventId) {
-                    console.log('New sale detected!', latestEvent.marketplace_event_type, latestEvent.price_xtz, 'XTZ');
+                if (latestEvent.id !== lastEventId) {
+                    console.log('🔔 NEW SALE DETECTED! Switching artwork...');
+                    console.log('   Type:', latestEvent.marketplace_event_type);
+                    console.log('   Price:', latestEvent.price_xtz, 'XTZ');
+                    console.log('   Event ID:', latestEvent.id);
 
                     const nextIndex = (currentArtworkIndex + 1) % artworkMetadata.length;
 
@@ -517,10 +541,10 @@
                     database.ref('screens/screen1/drips').remove();
                     database.ref('screens/screen2/drips').remove();
                     database.ref('screens/screen3/drips').remove();
-                }
 
-                // Update last known event
-                lastEventId = latestEvent.id;
+                    // Update last known event
+                    lastEventId = latestEvent.id;
+                }
 
             }, CONFIG.OBJKT_POLL_INTERVAL_MS);
         }
