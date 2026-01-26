@@ -132,15 +132,21 @@
         // Resize canvases
         function resizeCanvases() {
             const containerWidth = window.innerWidth;
-            const containerHeight = window.innerHeight;
+            const containerHeight = window.innerHeight;// In resizeCanvases() function, change this:
             const canvasWidth = containerWidth / 3;
 
-            canvases.forEach((canvas, i) => {
-                canvas.width = canvasWidth;
-                canvas.height = containerHeight;
-                canvas.style.width = `${canvasWidth}px`;
-                canvas.style.height = `${containerHeight}px`;
+            // To this - divide the space as 1:2:1 ratio
+            const totalParts = 4; // 1 + 2 + 1
+            const sideCanvasWidth = containerWidth / totalParts;
+            const middleCanvasWidth = sideCanvasWidth * 2;
 
+            canvases.forEach((canvas, i) => {
+                const width = i === 1 ? middleCanvasWidth : sideCanvasWidth;
+                canvas.width = width;
+                canvas.height = containerHeight;
+                canvas.style.width = `${width}px`;
+                canvas.style.height = `${containerHeight}px`;
+                
                 // Redraw image if loaded
                 if (currentImages[i]) {
                     contexts[i].drawImage(currentImages[i], 0, 0, canvas.width, canvas.height);
@@ -149,56 +155,73 @@
         }
 
         // Load artwork metadata from API
-        async function loadArtworkMetadata() {
-            const metadata = [];
-            for (const url of CONFIG.ARTWORKS) {
-                try {
+async function loadArtworkMetadata() {
+    const metadata = [];
+    
+    for (const artworkSet of CONFIG.ARTWORK_SETS) {
+        const setImages = [];
+        for (const url of artworkSet) {
+            try {
+                if (url.match(/\.(png|jpg|jpeg|gif|webp)$/i)) {
+                    setImages.push({
+                        name: `Artwork ${metadata.length + 1}`,
+                        image: url
+                    });
+                } else {
                     const response = await fetch(url);
                     if (response.ok) {
                         const data = await response.json();
-                        metadata.push({
+                        setImages.push({
                             name: data.name,
                             image: data.image_url
                         });
                     }
-                } catch (e) {
-                    console.warn('Failed to load artwork:', url);
                 }
+            } catch (e) {
+                console.warn('Failed to load artwork:', url);
             }
-            return metadata;
         }
+        if (setImages.length === 3) {
+            metadata.push(setImages);
+        }
+    }
+    return metadata;
+}
 
         // Load and display current artwork image on all canvases
-        function loadArtworkImage(index) {
-            if (index < 0 || index >= artworkMetadata.length) return;
+function loadArtworkImage(index) {
+    if (index < 0 || index >= artworkMetadata.length) return;
 
-            const artwork = artworkMetadata[index];
-            if (!artwork || !artwork.image) return;
+    const artworkSet = artworkMetadata[index]; // This is an array of 3 images
+    if (!artworkSet || artworkSet.length !== 3) return;
 
-            canvases.forEach((canvas, i) => {
-                const img = new Image();
-                img.crossOrigin = 'anonymous';
-                img.src = artwork.image;
-                img.onload = () => {
-                    currentImages[i] = img;
-                    contexts[i].drawImage(img, 0, 0, canvas.width, canvas.height);
+    canvases.forEach((canvas, i) => {
+        const artwork = artworkSet[i]; // Canvas 0 gets image 0, canvas 1 gets image 1, etc.
+        if (!artwork || !artwork.image) return;
 
-                    // Create color sampling canvas
-                    colorSampleCanvases[i] = document.createElement('canvas');
-                    colorSampleCanvases[i].width = img.width;
-                    colorSampleCanvases[i].height = img.height;
-                    colorSampleCtxs[i] = colorSampleCanvases[i].getContext('2d');
-                    colorSampleCtxs[i].drawImage(img, 0, 0);
-                };
-                img.onerror = () => {
-                    currentImages[i] = null;
-                    colorSampleCanvases[i] = null;
-                    colorSampleCtxs[i] = null;
-                    contexts[i].fillStyle = '#2a2a2a';
-                    contexts[i].fillRect(0, 0, canvas.width, canvas.height);
-                };
-            });
-        }
+        const img = new Image();
+        img.crossOrigin = 'anonymous';
+        img.src = artwork.image;
+        img.onload = () => {
+            currentImages[i] = img;
+            contexts[i].drawImage(img, 0, 0, canvas.width, canvas.height);
+
+            // Create color sampling canvas
+            colorSampleCanvases[i] = document.createElement('canvas');
+            colorSampleCanvases[i].width = img.width;
+            colorSampleCanvases[i].height = img.height;
+            colorSampleCtxs[i] = colorSampleCanvases[i].getContext('2d');
+            colorSampleCtxs[i].drawImage(img, 0, 0);
+        };
+        img.onerror = () => {
+            currentImages[i] = null;
+            colorSampleCanvases[i] = null;
+            colorSampleCtxs[i] = null;
+            contexts[i].fillStyle = '#2a2a2a';
+            contexts[i].fillRect(0, 0, canvas.width, canvas.height);
+        };
+    });
+}
 
         // Clear all pixels for all screens
         function clearAllPixels() {
@@ -554,8 +577,9 @@
             currentArtworkRef.on('value', (snapshot) => {
                 const data = snapshot.val();
                 if (data && typeof data.index === 'number') {
-                    if (data.index !== currentArtworkIndex) {
-                        currentArtworkIndex = data.index;
+                    const safeIndex = data.index % Math.max(1, artworkMetadata.length);
+                    if (safeIndex !== currentArtworkIndex) {
+                        currentArtworkIndex = safeIndex;
                         clearAllPixels();
                         loadArtworkImage(currentArtworkIndex);
                     }
