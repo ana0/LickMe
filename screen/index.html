@@ -61,6 +61,7 @@
         const urlParams = new URLSearchParams(window.location.search);
         const screenId = urlParams.get('screen') || '1';
         const screenKey = `screen${screenId}`;
+        const screenIndex = parseInt(screenId) - 1; // 0, 1, or 2 for array indexing
 
         // Database references (set after auth)
         let database;
@@ -111,21 +112,36 @@
             }
         }
 
-        // Load artwork metadata from API
+        
+        // Load artwork metadata - each set is a triptych
         async function loadArtworkMetadata() {
             const metadata = [];
-            for (const url of CONFIG.ARTWORKS) {
-                try {
-                    const response = await fetch(url);
-                    if (response.ok) {
-                        const data = await response.json();
-                        metadata.push({
-                            name: data.name,
-                            image: data.image_url
-                        });
+            
+            for (const artworkSet of CONFIG.ARTWORK_SETS) {
+                const setImages = [];
+                for (const url of artworkSet) {
+                    try {
+                        if (url.match(/\.(png|jpg|jpeg|gif|webp)$/i)) {
+                            setImages.push({
+                                name: `Artwork ${metadata.length + 1}`,
+                                image: url
+                            });
+                        } else {
+                            const response = await fetch(url);
+                            if (response.ok) {
+                                const data = await response.json();
+                                setImages.push({
+                                    name: data.name,
+                                    image: data.image_url
+                                });
+                            }
+                        }
+                    } catch (e) {
+                        console.warn('Failed to load artwork:', url);
                     }
-                } catch (e) {
-                    console.warn('Failed to load artwork:', url);
+                }
+                if (setImages.length === 3) {
+                    metadata.push(setImages);
                 }
             }
             return metadata;
@@ -135,7 +151,11 @@
         function loadArtworkImage(index) {
             if (index < 0 || index >= artworkMetadata.length) return;
 
-            const artwork = artworkMetadata[index];
+            const artworkSet = artworkMetadata[index]; // This is an array of 3 images
+            if (!artworkSet || artworkSet.length !== 3) return;
+
+            // Get the image for THIS screen (screenIndex: 0, 1, or 2)
+            const artwork = artworkSet[screenIndex];
             if (!artwork || !artwork.image) return;
 
             // Set background image
