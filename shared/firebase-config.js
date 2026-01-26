@@ -35,18 +35,33 @@ async function initFirebase() {
 
 // Shared constants
 const CONFIG = {
-  // Artwork API endpoints
-  ARTWORKS: [
-    "https://isthisa.computer/api/lickworks/1",
-    "https://isthisa.computer/api/lickworks/2",
-    "https://isthisa.computer/api/lickworks/3",
-    "https://isthisa.computer/api/lickworks/4",
-    "https://isthisa.computer/api/lickworks/5",
-    "https://isthisa.computer/api/lickworks/6",
-    "https://isthisa.computer/api/lickworks/7",
-    "https://isthisa.computer/api/lickworks/8",
-    "https://isthisa.computer/api/lickworks/9",
-    "https://isthisa.computer/api/lickworks/10"
+  // Each set is a triptych (3 images shown left to right)
+ ARTWORK_SETS: [
+    [
+      "/collections/3/img-01.png",
+      "/collections/3/img-02.png",
+      "/collections/3/img-03.png",
+    ],
+    [
+      "/collections/5/img-01.png",
+      "/collections/5/img-02.png",
+      "/collections/5/img-03.png",
+    ],
+    [
+      "/collections/6/img-01.png",
+      "/collections/6/img-02.png",
+      "/collections/6/img-03.png",
+    ],
+    [
+      "/collections/7/img-01.png",
+      "/collections/7/img-02.png",
+      "/collections/7/img-03.png",
+    ],
+    [
+      "/collections/9/img-01.png",
+      "/collections/9/img-02.png",
+      "/collections/9/img-03.png",
+    ],
   ],
 
   // Timing
