@@ -76,7 +76,6 @@
         // Database references (set after auth)
         let database;
         let currentArtworkRef;
-        let screensRef;
 
         // Canvas setup
         const canvases = [
@@ -91,9 +90,6 @@
 
         // State
         const pixelSize = CONFIG.PIXEL_SIZE;
-        const screenPixels = [new Map(), new Map(), new Map()]; // Pixels for each screen
-        const screenDripPixels = [new Map(), new Map(), new Map()]; // Drip pixels for each screen
-        const screenDrips = [[], [], []]; // Active drips for each screen
         let currentArtworkIndex = 0;
         let artworkMetadata = [];
         let currentImages = [null, null, null];
@@ -103,25 +99,25 @@
         let colorSampleCanvases = [null, null, null];
         let colorSampleCtxs = [null, null, null];
 
-        // Reference dimensions (what the touch screens report)
-        let screenDimensions = [
-            { width: 1920, height: 1080 },
-            { width: 1920, height: 1080 },
-            { width: 1920, height: 1080 }
+        // Per-screen physics state
+        const screenState = [
+            { localPixels: new Map(), dripPixels: new Map(), growthQueue: [], drips: [], puddleHeights: new Map(), isGrowing: false },
+            { localPixels: new Map(), dripPixels: new Map(), growthQueue: [], drips: [], puddleHeights: new Map(), isGrowing: false },
+            { localPixels: new Map(), dripPixels: new Map(), growthQueue: [], drips: [], puddleHeights: new Map(), isGrowing: false }
         ];
 
-        // Sample color from an image at given coordinates
+        // Sample color from an image at given coordinates (in canvas space)
         function sampleColor(screenIndex, x, y) {
             const sampleCtx = colorSampleCtxs[screenIndex];
             const sampleCanvas = colorSampleCanvases[screenIndex];
-            const dims = screenDimensions[screenIndex];
+            const canvas = canvases[screenIndex];
 
             if (!sampleCtx || !sampleCanvas) {
                 return { r: 128, g: 128, b: 128 };
             }
             try {
-                const sampleX = Math.floor((x / dims.width) * sampleCanvas.width);
-                const sampleY = Math.floor((y / dims.height) * sampleCanvas.height);
+                const sampleX = Math.floor((x / canvas.width) * sampleCanvas.width);
+                const sampleY = Math.floor((y / canvas.height) * sampleCanvas.height);
                 const pixel = sampleCtx.getImageData(sampleX, sampleY, 1, 1).data;
                 return { r: pixel[0], g: pixel[1], b: pixel[2] };
             } catch (e) {
@@ -132,11 +128,10 @@
         // Resize canvases
         function resizeCanvases() {
             const containerWidth = window.innerWidth;
-            const containerHeight = window.innerHeight;// In resizeCanvases() function, change this:
-            const canvasWidth = containerWidth / 3;
+            const containerHeight = window.innerHeight;
 
-            // To this - divide the space as 1:2:1 ratio
-            const totalParts = 4; // 1 + 2 + 1
+            // Divide the space as 1:2:1 ratio
+            const totalParts = 4;
             const sideCanvasWidth = containerWidth / totalParts;
             const middleCanvasWidth = sideCanvasWidth * 2;
 
@@ -146,8 +141,7 @@
                 canvas.height = containerHeight;
                 canvas.style.width = `${width}px`;
                 canvas.style.height = `${containerHeight}px`;
-                
-                // Redraw image if loaded
+
                 if (currentImages[i]) {
                     contexts[i].drawImage(currentImages[i], 0, 0, canvas.width, canvas.height);
                 }
@@ -155,79 +149,84 @@
         }
 
         // Load artwork metadata from API
-async function loadArtworkMetadata() {
-    const metadata = [];
-    
-    for (const artworkSet of CONFIG.ARTWORK_SETS) {
-        const setImages = [];
-        for (const url of artworkSet) {
-            try {
-                if (url.match(/\.(png|jpg|jpeg|gif|webp)$/i)) {
-                    setImages.push({
-                        name: `Artwork ${metadata.length + 1}`,
-                        image: url
-                    });
-                } else {
-                    const response = await fetch(url);
-                    if (response.ok) {
-                        const data = await response.json();
-                        setImages.push({
-                            name: data.name,
-                            image: data.image_url
-                        });
+        async function loadArtworkMetadata() {
+            const metadata = [];
+
+            for (const artworkSet of CONFIG.ARTWORK_SETS) {
+                const setImages = [];
+                for (const url of artworkSet) {
+                    try {
+                        if (url.match(/\.(png|jpg|jpeg|gif|webp)$/i)) {
+                            setImages.push({
+                                name: `Artwork ${metadata.length + 1}`,
+                                image: url
+                            });
+                        } else {
+                            const response = await fetch(url);
+                            if (response.ok) {
+                                const data = await response.json();
+                                setImages.push({
+                                    name: data.name,
+                                    image: data.image_url
+                                });
+                            }
+                        }
+                    } catch (e) {
+                        console.warn('Failed to load artwork:', url);
                     }
                 }
-            } catch (e) {
-                console.warn('Failed to load artwork:', url);
+                if (setImages.length === 3) {
+                    metadata.push(setImages);
+                }
             }
+            return metadata;
         }
-        if (setImages.length === 3) {
-            metadata.push(setImages);
-        }
-    }
-    return metadata;
-}
 
         // Load and display current artwork image on all canvases
-function loadArtworkImage(index) {
-    if (index < 0 || index >= artworkMetadata.length) return;
+        function loadArtworkImage(index) {
+            if (index < 0 || index >= artworkMetadata.length) return;
 
-    const artworkSet = artworkMetadata[index]; // This is an array of 3 images
-    if (!artworkSet || artworkSet.length !== 3) return;
+            const artworkSet = artworkMetadata[index];
+            if (!artworkSet || artworkSet.length !== 3) return;
 
-    canvases.forEach((canvas, i) => {
-        const artwork = artworkSet[i]; // Canvas 0 gets image 0, canvas 1 gets image 1, etc.
-        if (!artwork || !artwork.image) return;
+            canvases.forEach((canvas, i) => {
+                const artwork = artworkSet[i];
+                if (!artwork || !artwork.image) return;
 
-        const img = new Image();
-        img.crossOrigin = 'anonymous';
-        img.src = artwork.image;
-        img.onload = () => {
-            currentImages[i] = img;
-            contexts[i].drawImage(img, 0, 0, canvas.width, canvas.height);
+                const img = new Image();
+                img.crossOrigin = 'anonymous';
+                img.src = artwork.image;
+                img.onload = () => {
+                    currentImages[i] = img;
+                    contexts[i].drawImage(img, 0, 0, canvas.width, canvas.height);
 
-            // Create color sampling canvas
-            colorSampleCanvases[i] = document.createElement('canvas');
-            colorSampleCanvases[i].width = img.width;
-            colorSampleCanvases[i].height = img.height;
-            colorSampleCtxs[i] = colorSampleCanvases[i].getContext('2d');
-            colorSampleCtxs[i].drawImage(img, 0, 0);
-        };
-        img.onerror = () => {
-            currentImages[i] = null;
-            colorSampleCanvases[i] = null;
-            colorSampleCtxs[i] = null;
-            contexts[i].fillStyle = '#2a2a2a';
-            contexts[i].fillRect(0, 0, canvas.width, canvas.height);
-        };
-    });
-}
+                    // Create color sampling canvas
+                    colorSampleCanvases[i] = document.createElement('canvas');
+                    colorSampleCanvases[i].width = img.width;
+                    colorSampleCanvases[i].height = img.height;
+                    colorSampleCtxs[i] = colorSampleCanvases[i].getContext('2d');
+                    colorSampleCtxs[i].drawImage(img, 0, 0);
+                };
+                img.onerror = () => {
+                    currentImages[i] = null;
+                    colorSampleCanvases[i] = null;
+                    colorSampleCtxs[i] = null;
+                    contexts[i].fillStyle = '#2a2a2a';
+                    contexts[i].fillRect(0, 0, canvas.width, canvas.height);
+                };
+            });
+        }
 
         // Clear all pixels for all screens
         function clearAllPixels() {
-            screenPixels.forEach(pixels => pixels.clear());
-            screenDripPixels.forEach(pixels => pixels.clear());
-            screenDrips.forEach(drips => drips.length = 0);
+            screenState.forEach((state, i) => {
+                state.localPixels.clear();
+                state.dripPixels.clear();
+                state.growthQueue.length = 0;
+                state.drips.length = 0;
+                state.puddleHeights.clear();
+                state.isGrowing = false;
+            });
             canvases.forEach((canvas, i) => {
                 if (currentImages[i]) {
                     contexts[i].drawImage(currentImages[i], 0, 0, canvas.width, canvas.height);
@@ -238,37 +237,117 @@ function loadArtworkImage(index) {
             });
         }
 
-        // Find edge pixels for a screen (for drip generation)
+        // Add a pixel locally for a given screen (no Firebase sync)
+        function addPixel(screenIndex, x, y, color = null) {
+            const canvas = canvases[screenIndex];
+            const state = screenState[screenIndex];
+            const snappedX = Math.floor(x / pixelSize) * pixelSize;
+            const snappedY = Math.floor(y / pixelSize) * pixelSize;
+            const key = `${snappedX}_${snappedY}`;
+
+            if (snappedX < 0 || snappedX >= canvas.width || snappedY < 0 || snappedY >= canvas.height) {
+                return false;
+            }
+
+            if (state.localPixels.has(key)) return false;
+
+            const now = Date.now();
+            const pixelColor = color || sampleColor(screenIndex, snappedX, snappedY);
+
+            state.localPixels.set(key, { x: snappedX, y: snappedY, r: pixelColor.r, g: pixelColor.g, b: pixelColor.b, createdAt: now });
+
+            return true;
+        }
+
+        // Fungus growth algorithm for a given screen
+        function growFungus(screenIndex) {
+            const canvas = canvases[screenIndex];
+            const state = screenState[screenIndex];
+
+            if (state.growthQueue.length === 0) {
+                state.isGrowing = false;
+                return;
+            }
+
+            const batchSize = 40;
+            for (let i = 0; i < batchSize && state.growthQueue.length > 0; i++) {
+                const { x, y, centerX, centerY, maxDistance, color } = state.growthQueue.shift();
+
+                const directions = [
+                    { dx: pixelSize, dy: 0 }, { dx: -pixelSize, dy: 0 },
+                    { dx: 0, dy: pixelSize }, { dx: 0, dy: -pixelSize },
+                    { dx: pixelSize, dy: pixelSize }, { dx: -pixelSize, dy: -pixelSize },
+                    { dx: pixelSize, dy: -pixelSize }, { dx: -pixelSize, dy: pixelSize }
+                ];
+
+                // Shuffle directions for organic look
+                for (let j = directions.length - 1; j > 0; j--) {
+                    const k = Math.floor(Math.random() * (j + 1));
+                    [directions[j], directions[k]] = [directions[k], directions[j]];
+                }
+
+                for (const { dx, dy } of directions) {
+                    const newX = x + dx;
+                    const newY = y + dy;
+
+                    if (newX < 0 || newX >= canvas.width || newY < 0 || newY >= canvas.height) continue;
+
+                    const key = `${newX}_${newY}`;
+                    if (state.localPixels.has(key)) continue;
+
+                    const distance = Math.sqrt(Math.pow(newX - centerX, 2) + Math.pow(newY - centerY, 2));
+                    if (distance > maxDistance) continue;
+
+                    const orthogonalNeighbors = [
+                        `${newX + pixelSize}_${newY}`,
+                        `${newX - pixelSize}_${newY}`,
+                        `${newX}_${newY + pixelSize}`,
+                        `${newX}_${newY - pixelSize}`
+                    ].filter(k => state.localPixels.has(k)).length;
+
+                    if (orthogonalNeighbors > 1 && Math.random() < 0.5) continue;
+
+                    if (Math.random() < 0.4 && addPixel(screenIndex, newX, newY, color)) {
+                        if (Math.random() < 0.75) {
+                            state.growthQueue.push({ x: newX, y: newY, centerX, centerY, maxDistance, color });
+                        }
+                    }
+                }
+            }
+
+            requestAnimationFrame(() => growFungus(screenIndex));
+        }
+
+        // Find edge pixels for a given screen
         function findEdgePixels(screenIndex) {
-            const pixels = screenPixels[screenIndex];
+            const state = screenState[screenIndex];
             const edgePixels = [];
-            pixels.forEach((pixel, key) => {
+            state.localPixels.forEach((pixel, key) => {
                 const neighbors = [
                     `${pixel.x + pixelSize}_${pixel.y}`,
                     `${pixel.x - pixelSize}_${pixel.y}`,
                     `${pixel.x}_${pixel.y + pixelSize}`,
                     `${pixel.x}_${pixel.y - pixelSize}`
                 ];
-                if (neighbors.some(nKey => !pixels.has(nKey))) {
+                if (neighbors.some(nKey => !state.localPixels.has(nKey))) {
                     edgePixels.push(pixel);
                 }
             });
             return edgePixels;
         }
 
-        // Update drips for a screen
-        function updateDrips(screenIndex, canvas) {
-            const pixels = screenPixels[screenIndex];
-            const dripPixels = screenDripPixels[screenIndex];
-            const drips = screenDrips[screenIndex];
-            const dims = screenDimensions[screenIndex];
+        // Update drips for a given screen - full sand physics
+        function updateDrips(screenIndex) {
+            const canvas = canvases[screenIndex];
+            const state = screenState[screenIndex];
+            const { localPixels, dripPixels, drips } = state;
 
-            // Occasionally spawn new drips
-            if (Math.random() < 0.02 && pixels.size > 50) {
+            // Spawn drips from bottom edges
+            if (Math.random() < 0.02 && localPixels.size > 10) {
                 const edgePixels = findEdgePixels(screenIndex);
                 const bottomEdges = edgePixels.filter(p => {
                     const below = `${p.x}_${p.y + pixelSize}`;
-                    return !pixels.has(below) && p.y < dims.height - 100;
+                    return !localPixels.has(below) && p.y < canvas.height - 100;
                 });
 
                 if (bottomEdges.length > 0) {
@@ -276,27 +355,173 @@ function loadArtworkImage(index) {
                     drips.push({
                         x: dripSource.x,
                         y: dripSource.y + pixelSize,
-                        speed: 2 + Math.random() * 3,
+                        speed: 6 + Math.random() * 4,
+                        color: { r: dripSource.r || 128, g: dripSource.g || 128, b: dripSource.b || 128 },
+                        payload: 70 + Math.floor(Math.random() * 50),
+                        pooling: false,
                         createdAt: Date.now()
                     });
                 }
             }
 
             // Update existing drips
+            const floorY = Math.floor(canvas.height / pixelSize) * pixelSize - pixelSize;
+
             for (let i = drips.length - 1; i >= 0; i--) {
                 const drip = drips[i];
                 drip.y += drip.speed;
 
                 const snappedX = Math.floor(drip.x / pixelSize) * pixelSize;
                 const snappedY = Math.floor(drip.y / pixelSize) * pixelSize;
-                const key = `${snappedX}_${snappedY}`;
 
-                if (!dripPixels.has(key) && snappedY >= 0 && snappedY < dims.height) {
-                    const color = sampleColor(screenIndex, snappedX, snappedY);
-                    dripPixels.set(key, { x: snappedX, y: snappedY, r: color.r, g: color.g, b: color.b, createdAt: Date.now() });
+                const currentKey = `${snappedX}_${snappedY}`;
+                const belowKey = `${snappedX}_${snappedY + pixelSize}`;
+                const atFloor = snappedY >= floorY;
+                const hitPile = dripPixels.has(currentKey) || dripPixels.has(belowKey);
+
+                if (!drip.trail) drip.trail = [];
+                drip.trail.push({ x: snappedX, y: snappedY });
+                if (drip.trail.length > 50) drip.trail.shift();
+
+                if (atFloor || hitPile) {
+                    drip.pooling = true;
+                    drip.poolX = snappedX;
+                    drip.y = floorY;
                 }
 
-                if (drip.y >= dims.height) drips.splice(i, 1);
+                if (drip.pooling && drip.payload > 0) {
+                    const color = drip.color;
+                    const now = Date.now();
+                    const grainsPerFrame = 3 + Math.floor(Math.random() * 3);
+
+                    for (let p = 0; p < grainsPerFrame && drip.payload > 0; p++) {
+                        drip.payload--;
+
+                        let settleX = drip.poolX;
+                        let settleY = floorY;
+
+                        while (settleY >= 0 && dripPixels.has(`${settleX}_${settleY}`)) {
+                            settleY -= pixelSize;
+                        }
+
+                        // Flow downhill
+                        for (let roll = 0; roll < 50; roll++) {
+                            const leftX = settleX - pixelSize;
+                            const rightX = settleX + pixelSize;
+
+                            let leftY = floorY;
+                            if (leftX >= 0) {
+                                while (leftY >= 0 && dripPixels.has(`${leftX}_${leftY}`)) leftY -= pixelSize;
+                            } else {
+                                leftY = -999;
+                            }
+
+                            let rightY = floorY;
+                            if (rightX < canvas.width) {
+                                while (rightY >= 0 && dripPixels.has(`${rightX}_${rightY}`)) rightY -= pixelSize;
+                            } else {
+                                rightY = -999;
+                            }
+
+                            if (Math.random() < 0.05) {
+                                break;
+                            } else if (Math.random() < 0.1 && (leftY > settleY || rightY > settleY)) {
+                                if (leftY > settleY && rightY > settleY) {
+                                    if (Math.random() < 0.3) { settleX = leftX; settleY = leftY; }
+                                    else { settleX = rightX; settleY = rightY; }
+                                } else if (leftY > settleY) { settleX = leftX; settleY = leftY; }
+                                else { settleX = rightX; settleY = rightY; }
+                            } else if (leftY > settleY && leftY >= rightY) {
+                                settleX = leftX;
+                                settleY = leftY;
+                            } else if (rightY > settleY) {
+                                settleX = rightX;
+                                settleY = rightY;
+                            } else {
+                                break;
+                            }
+                        }
+
+                        const settleKey = `${settleX}_${settleY}`;
+                        if (settleY >= 0 && !dripPixels.has(settleKey)) {
+                            dripPixels.set(settleKey, { x: settleX, y: settleY, r: color.r, g: color.g, b: color.b, createdAt: now });
+                        }
+                    }
+
+                    if (drip.payload <= 0) {
+                        drips.splice(i, 1);
+                    }
+                }
+            }
+        }
+
+        // Spread effect from a touch point on a given screen
+        function triggerSpread(screenIndex, clientX, clientY) {
+            const canvas = canvases[screenIndex];
+            const state = screenState[screenIndex];
+            const centerX = Math.floor(clientX / pixelSize) * pixelSize;
+            const centerY = Math.floor(clientY / pixelSize) * pixelSize;
+
+            const touchColor = sampleColor(screenIndex, centerX, centerY);
+            const maxDistance = 120;
+
+            // Find edge pixels near the touch point to expand from
+            const edgePixelsNearby = [];
+            for (const [key, pixel] of state.localPixels) {
+                const distance = Math.sqrt(Math.pow(pixel.x - centerX, 2) + Math.pow(pixel.y - centerY, 2));
+                if (distance < 80) {
+                    const neighbors = [
+                        `${pixel.x + pixelSize}_${pixel.y}`,
+                        `${pixel.x - pixelSize}_${pixel.y}`,
+                        `${pixel.x}_${pixel.y + pixelSize}`,
+                        `${pixel.x}_${pixel.y - pixelSize}`
+                    ];
+                    const hasEmptyNeighbor = neighbors.some(n => !state.localPixels.has(n));
+                    if (hasEmptyNeighbor) {
+                        edgePixelsNearby.push(pixel);
+                    }
+                }
+            }
+
+            if (edgePixelsNearby.length > 0) {
+                const expandCount = Math.min(edgePixelsNearby.length, 10);
+                for (let i = 0; i < expandCount; i++) {
+                    const pixel = edgePixelsNearby[Math.floor(Math.random() * edgePixelsNearby.length)];
+                    state.growthQueue.push({
+                        x: pixel.x,
+                        y: pixel.y,
+                        centerX: pixel.x,
+                        centerY: pixel.y,
+                        maxDistance,
+                        color: touchColor
+                    });
+                }
+            } else {
+                addPixel(screenIndex, centerX, centerY, touchColor);
+
+                const seedCount = 8;
+                for (let i = 0; i < seedCount; i++) {
+                    const angle = (Math.PI * 2 / seedCount) * i + Math.random() * 0.3;
+                    const dist = pixelSize * (1 + Math.floor(Math.random() * 3));
+                    const x = centerX + Math.cos(angle) * dist;
+                    const y = centerY + Math.sin(angle) * dist;
+
+                    if (addPixel(screenIndex, x, y, touchColor)) {
+                        state.growthQueue.push({
+                            x: Math.floor(x / pixelSize) * pixelSize,
+                            y: Math.floor(y / pixelSize) * pixelSize,
+                            centerX,
+                            centerY,
+                            maxDistance,
+                            color: touchColor
+                        });
+                    }
+                }
+            }
+
+            if (!state.isGrowing && state.growthQueue.length > 0) {
+                state.isGrowing = true;
+                growFungus(screenIndex);
             }
         }
 
@@ -306,135 +531,111 @@ function loadArtworkImage(index) {
 
             canvases.forEach((canvas, screenIndex) => {
                 const ctx = contexts[screenIndex];
-                const pixels = screenPixels[screenIndex];
-                const dripPixels = screenDripPixels[screenIndex];
-                const dims = screenDimensions[screenIndex];
+                const state = screenState[screenIndex];
 
-                // Drips now come from Firebase - no local generation needed
+                // Update drips
+                updateDrips(screenIndex);
 
                 // Draw base image
                 if (currentImages[screenIndex]) {
                     ctx.drawImage(currentImages[screenIndex], 0, 0, canvas.width, canvas.height);
                 }
 
-                // Calculate scale factor (touch screen coords to display coords)
-                const scaleX = canvas.width / dims.width;
-                const scaleY = canvas.height / dims.height;
-                // Use integer scaled size for crisp pixels
-                const scaledSize = Math.max(1, Math.round(pixelSize * Math.min(scaleX, scaleY)));
-
-                // Helper to draw a pixel - fade from white to sampled color, then stay
-                function drawPixel(pixel) {
+                // Draw pixels - fade from white to sampled color
+                state.localPixels.forEach((pixel, key) => {
                     const age = currentTime - pixel.createdAt;
                     const r = pixel.r || 128;
                     const g = pixel.g || 128;
                     const b = pixel.b || 128;
 
-                    // Scale and round to integers for crisp rendering
-                    const scaledX = Math.round(pixel.x * scaleX);
-                    const scaledY = Math.round(pixel.y * scaleY);
-
                     if (age < CONFIG.WHITE_TO_BLACK_MS) {
-                        // White to sampled color transition
                         const ratio = age / CONFIG.WHITE_TO_BLACK_MS;
                         const pr = Math.floor(255 - (ratio * (255 - r)));
                         const pg = Math.floor(255 - (ratio * (255 - g)));
                         const pb = Math.floor(255 - (ratio * (255 - b)));
                         ctx.fillStyle = `rgb(${pr}, ${pg}, ${pb})`;
-                        ctx.fillRect(scaledX, scaledY, scaledSize, scaledSize);
+                        ctx.fillRect(pixel.x, pixel.y, pixelSize, pixelSize);
                     } else {
-                        // Stay at sampled color
                         ctx.fillStyle = `rgb(${r}, ${g}, ${b})`;
-                        ctx.fillRect(scaledX, scaledY, scaledSize, scaledSize);
+                        ctx.fillRect(pixel.x, pixel.y, pixelSize, pixelSize);
                     }
-                }
-
-                // Draw main pixels
-                pixels.forEach((pixel, key) => {
-                    drawPixel(pixel);
                 });
 
                 // Draw drip pixels
-                dripPixels.forEach((pixel, key) => {
-                    drawPixel(pixel);
+                state.dripPixels.forEach((pixel, key) => {
+                    const age = currentTime - pixel.createdAt;
+                    const r = pixel.r || 128;
+                    const g = pixel.g || 128;
+                    const b = pixel.b || 128;
+
+                    if (age < CONFIG.WHITE_TO_BLACK_MS) {
+                        const ratio = age / CONFIG.WHITE_TO_BLACK_MS;
+                        const pr = Math.floor(255 - (ratio * (255 - r)));
+                        const pg = Math.floor(255 - (ratio * (255 - g)));
+                        const pb = Math.floor(255 - (ratio * (255 - b)));
+                        ctx.fillStyle = `rgb(${pr}, ${pg}, ${pb})`;
+                        ctx.fillRect(pixel.x, pixel.y, pixelSize, pixelSize);
+                    } else {
+                        ctx.fillStyle = `rgb(${r}, ${g}, ${b})`;
+                        ctx.fillRect(pixel.x, pixel.y, pixelSize, pixelSize);
+                    }
+                });
+
+                // Draw active drip trails
+                state.drips.forEach(drip => {
+                    if (drip.trail && drip.color) {
+                        const r = drip.color.r;
+                        const g = drip.color.g;
+                        const b = drip.color.b;
+                        drip.trail.forEach((pos, idx) => {
+                            const alpha = (idx / drip.trail.length);
+                            ctx.fillStyle = `rgba(${r}, ${g}, ${b}, ${alpha})`;
+                            ctx.fillRect(pos.x, pos.y, pixelSize, pixelSize);
+                        });
+                    }
                 });
             });
 
             // Update status
-            const totalPixels = screenPixels.reduce((sum, p) => sum + p.size, 0);
-            const totalDrips = screenDripPixels.reduce((sum, p) => sum + p.size, 0);
+            const totalPixels = screenState.reduce((sum, s) => sum + s.localPixels.size, 0);
+            const totalDrips = screenState.reduce((sum, s) => sum + s.dripPixels.size, 0);
             statusEl.textContent = `Artwork ${currentArtworkIndex + 1}/${artworkMetadata.length} | Pixels: ${totalPixels} | Drips: ${totalDrips}${isMaster ? ' (Master)' : ''}`;
 
             requestAnimationFrame(draw);
         }
 
-        // Setup Firebase listeners for each screen
+        // Setup Firebase listeners for touch events from each screen
         function setupScreenListeners() {
+            const connectionTime = Date.now();
+
             for (let i = 0; i < 3; i++) {
                 const screenKey = `screen${i + 1}`;
+                const touchesRef = database.ref(`screens/${screenKey}/touches`);
+                const screenIndex = i;
+
+                // Listen for new touches - only process ones after we connected
+                touchesRef.on('child_added', (snapshot) => {
+                    const touch = snapshot.val();
+                    if (!touch || touch.t < connectionTime - 1000) return;
+
+                    // Convert normalized coordinates to display canvas space
+                    const canvas = canvases[screenIndex];
+                    const x = touch.nx * canvas.width;
+                    const y = touch.ny * canvas.height;
+                    triggerSpread(screenIndex, x, y);
+                });
+
+                // Listen for full clear (on artwork change)
                 const screenRef = database.ref(`screens/${screenKey}`);
-                const pixelsRef = screenRef.child('pixels');
-                const dripsRef = screenRef.child('drips');
-
-                // Listen for screen dimensions
-                screenRef.child('dimensions').on('value', (snapshot) => {
-                    const dims = snapshot.val();
-                    if (dims && dims.width && dims.height) {
-                        screenDimensions[i] = { width: dims.width, height: dims.height };
-                        console.log(`Screen ${i + 1} dimensions updated:`, dims.width, 'x', dims.height);
-                    }
-                });
-
-                // Also fetch dimensions immediately in case they already exist
-                screenRef.child('dimensions').once('value', (snapshot) => {
-                    const dims = snapshot.val();
-                    if (dims && dims.width && dims.height) {
-                        screenDimensions[i] = { width: dims.width, height: dims.height };
-                        console.log(`Screen ${i + 1} dimensions loaded:`, dims.width, 'x', dims.height);
-                    }
-                });
-
-                // Listen for new pixels
-                pixelsRef.on('child_added', (snapshot) => {
-                    const key = snapshot.key;
-                    const data = snapshot.val();
-                    if (data) {
-                        screenPixels[i].set(key, {
-                            x: data.x,
-                            y: data.y,
-                            r: data.r || 128,
-                            g: data.g || 128,
-                            b: data.b || 128,
-                            createdAt: data.createdAt || Date.now()
-                        });
-                    }
-                });
-
-                // Listen for drip pixels from Firebase
-                dripsRef.on('child_added', (snapshot) => {
-                    const key = snapshot.key;
-                    const data = snapshot.val();
-                    if (data) {
-                        screenDripPixels[i].set(key, {
-                            x: data.x,
-                            y: data.y,
-                            r: data.r || 128,
-                            g: data.g || 128,
-                            b: data.b || 128,
-                            createdAt: data.createdAt || Date.now()
-                        });
-                    }
-                });
-
-                // Don't listen for child_removed - let local lifecycle cleanup handle it
-                // This ensures display shows full animation even if screen removes pixel early
-
-                // Listen for full clear
                 screenRef.on('value', (snapshot) => {
-                    if (!snapshot.exists() || !snapshot.child('pixels').exists()) {
-                        screenPixels[i].clear();
-                        screenDripPixels[i].clear();
-                        screenDrips[i].length = 0;
+                    if (!snapshot.exists() || !snapshot.child('touches').exists()) {
+                        const state = screenState[screenIndex];
+                        state.localPixels.clear();
+                        state.dripPixels.clear();
+                        state.growthQueue.length = 0;
+                        state.drips.length = 0;
+                        state.puddleHeights.clear();
+                        state.isGrowing = false;
                     }
                 });
             }
@@ -527,24 +728,21 @@ function loadArtworkImage(index) {
             let lastEventId = null;
             let isFirstPoll = true;
 
-            // Poll for new sale events
             setInterval(async () => {
                 if (!isMaster || artworkMetadata.length === 0) return;
 
                 const latestEvent = await getLatestSaleEvent();
                 if (!latestEvent) return;
 
-                // Initialize tracking on first poll
                 if (isFirstPoll) {
                     lastEventId = latestEvent.id;
-                    console.log('🎨 Starting artwork cycling on sales. Watching for new events...');
+                    console.log('Starting artwork cycling on sales. Watching for new events...');
                     isFirstPoll = false;
                     return;
                 }
 
-                // Check if this is a new sale event (different id)
                 if (latestEvent.id !== lastEventId) {
-                    console.log('🔔 NEW SALE DETECTED! Switching artwork...');
+                    console.log('NEW SALE DETECTED! Switching artwork...');
                     console.log('   Type:', latestEvent.marketplace_event_type);
                     console.log('   Price:', latestEvent.price_xtz, 'XTZ');
                     console.log('   Event ID:', latestEvent.id);
@@ -557,22 +755,18 @@ function loadArtworkImage(index) {
                         lastChanged: firebase.database.ServerValue.TIMESTAMP
                     });
 
-                    // Clear all screen pixels and drips
-                    database.ref('screens/screen1/pixels').remove();
-                    database.ref('screens/screen2/pixels').remove();
-                    database.ref('screens/screen3/pixels').remove();
-                    database.ref('screens/screen1/drips').remove();
-                    database.ref('screens/screen2/drips').remove();
-                    database.ref('screens/screen3/drips').remove();
+                    // Clear touches in Firebase
+                    database.ref('screens/screen1/touches').remove();
+                    database.ref('screens/screen2/touches').remove();
+                    database.ref('screens/screen3/touches').remove();
 
-                    // Update last known event
                     lastEventId = latestEvent.id;
                 }
 
             }, CONFIG.OBJKT_POLL_INTERVAL_MS);
         }
 
-        // Setup artwork change listener (called after auth)
+        // Setup artwork change listener
         function setupArtworkListener() {
             currentArtworkRef.on('value', (snapshot) => {
                 const data = snapshot.val();
@@ -591,27 +785,21 @@ function loadArtworkImage(index) {
         async function init() {
             loadingEl.textContent = 'Authenticating...';
 
-            // Initialize Firebase with anonymous auth
             const authSuccess = await initFirebase();
             if (!authSuccess) {
                 loadingEl.textContent = 'Error: Authentication failed';
                 return;
             }
 
-            // Set up database references after auth
             database = firebase.database();
             currentArtworkRef = database.ref('currentArtwork');
-            screensRef = database.ref('screens');
 
-            // Setup listeners
             setupArtworkListener();
 
             loadingEl.textContent = 'Loading artworks...';
 
-            // Resize canvases
             resizeCanvases();
 
-            // Load artwork metadata
             artworkMetadata = await loadArtworkMetadata();
 
             if (artworkMetadata.length === 0) {
@@ -619,7 +807,6 @@ function loadArtworkImage(index) {
                 return;
             }
 
-            // Check current artwork index from Firebase
             const artworkSnapshot = await currentArtworkRef.once('value');
             const artworkData = artworkSnapshot.val();
             if (artworkData && typeof artworkData.index === 'number') {
@@ -631,19 +818,14 @@ function loadArtworkImage(index) {
                 });
             }
 
-            // Load initial artwork
             loadArtworkImage(currentArtworkIndex);
 
-            // Setup Firebase listeners
             setupScreenListeners();
 
-            // Setup master cycling
             setupMasterCycling();
 
-            // Hide loading
             loadingEl.style.display = 'none';
 
-            // Start drawing
             draw();
         }
 

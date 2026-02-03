@@ -66,8 +66,7 @@
         // Database references (set after auth)
         let database;
         let screenRef;
-        let pixelsRef;
-        let dripsRef;
+        let touchesRef;
         let currentArtworkRef;
 
         // Canvas setup
@@ -204,8 +203,7 @@
             }
         }
 
-        // Add a pixel locally and sync to Firebase
-        // If color is provided, use it; otherwise sample from image
+        // Add a pixel locally (no Firebase sync - only touches are synced)
         function addPixel(x, y, color = null) {
             const snappedX = Math.floor(x / pixelSize) * pixelSize;
             const snappedY = Math.floor(y / pixelSize) * pixelSize;
@@ -218,23 +216,9 @@
             if (localPixels.has(key)) return false;
 
             const now = Date.now();
-            // Use provided color or sample from image
             const pixelColor = color || sampleColor(snappedX, snappedY);
 
-            const pixelData = {
-                x: snappedX,
-                y: snappedY,
-                r: pixelColor.r,
-                g: pixelColor.g,
-                b: pixelColor.b,
-                createdAt: firebase.database.ServerValue.TIMESTAMP
-            };
-
-            // Add locally with color
             localPixels.set(key, { x: snappedX, y: snappedY, r: pixelColor.r, g: pixelColor.g, b: pixelColor.b, createdAt: now });
-
-            // Sync to Firebase
-            pixelsRef.child(key).set(pixelData);
 
             return true;
         }
@@ -435,16 +419,6 @@
                         const settleKey = `${settleX}_${settleY}`;
                         if (settleY >= 0 && !dripPixels.has(settleKey)) {
                             dripPixels.set(settleKey, { x: settleX, y: settleY, r: color.r, g: color.g, b: color.b, createdAt: now });
-
-                            // Sync to Firebase
-                            dripsRef.child(settleKey).set({
-                                x: settleX,
-                                y: settleY,
-                                r: color.r,
-                                g: color.g,
-                                b: color.b,
-                                createdAt: firebase.database.ServerValue.TIMESTAMP
-                            });
                         }
                     }
 
@@ -460,6 +434,15 @@
         function triggerSpread(clientX, clientY) {
             const centerX = Math.floor(clientX / pixelSize) * pixelSize;
             const centerY = Math.floor(clientY / pixelSize) * pixelSize;
+
+            // Send normalized touch coordinates to Firebase for display
+            if (touchesRef) {
+                touchesRef.push({
+                    nx: clientX / canvas.width,
+                    ny: clientY / canvas.height,
+                    t: Date.now()
+                });
+            }
 
             // Sample color at the touch point - this color will spread outward
             const touchColor = sampleColor(centerX, centerY);
@@ -758,15 +741,10 @@
                         lastChanged: firebase.database.ServerValue.TIMESTAMP
                     });
 
-                    // Clear pixels and drips in Firebase
-                    pixelsRef.remove();
-                    dripsRef.remove();
-                    database.ref('screens/screen1/pixels').remove();
-                    database.ref('screens/screen2/pixels').remove();
-                    database.ref('screens/screen3/pixels').remove();
-                    database.ref('screens/screen1/drips').remove();
-                    database.ref('screens/screen2/drips').remove();
-                    database.ref('screens/screen3/drips').remove();
+                    // Clear touches in Firebase
+                    database.ref('screens/screen1/touches').remove();
+                    database.ref('screens/screen2/touches').remove();
+                    database.ref('screens/screen3/touches').remove();
 
                     // Update last known event
                     lastEventId = latestEvent.id;
@@ -788,33 +766,6 @@
                     }
                 }
             });
-
-            // Listen for pixel updates from Firebase (for sync)
-            pixelsRef.on('child_added', (snapshot) => {
-                const key = snapshot.key;
-                const data = snapshot.val();
-                if (!localPixels.has(key) && data) {
-                    localPixels.set(key, {
-                        x: data.x,
-                        y: data.y,
-                        r: data.r || 128,
-                        g: data.g || 128,
-                        b: data.b || 128,
-                        createdAt: data.createdAt || Date.now()
-                    });
-                }
-            });
-
-            pixelsRef.on('child_removed', (snapshot) => {
-                localPixels.delete(snapshot.key);
-            });
-
-            // Listen for full clear
-            screenRef.on('value', (snapshot) => {
-                if (!snapshot.exists() || !snapshot.child('pixels').exists()) {
-                    localPixels.clear();
-                }
-            });
         }
 
         // Initialize
@@ -831,8 +782,7 @@
             // Set up database references after auth
             database = firebase.database();
             screenRef = database.ref(`screens/${screenKey}`);
-            pixelsRef = screenRef.child('pixels');
-            dripsRef = screenRef.child('drips');
+            touchesRef = screenRef.child('touches');
             currentArtworkRef = database.ref('currentArtwork');
 
             // Setup Firebase listeners
@@ -871,12 +821,6 @@
             canvas.addEventListener('click', handleClick);
             canvas.addEventListener('mousemove', handleMouseMove);
 
-            // Report screen dimensions to Firebase for display scaling
-            screenRef.child('dimensions').set({
-                width: canvas.width,
-                height: canvas.height
-            });
-
             // Setup master cycling
             setupMasterCycling();
 
@@ -892,13 +836,6 @@
             canvas.height = window.innerHeight;
             if (currentImage) {
                 ctx.drawImage(currentImage, 0, 0, canvas.width, canvas.height);
-            }
-            // Update dimensions in Firebase
-            if (screenRef) {
-                screenRef.child('dimensions').set({
-                    width: canvas.width,
-                    height: canvas.height
-                });
             }
         });
 
