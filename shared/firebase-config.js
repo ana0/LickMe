@@ -74,5 +74,21 @@ const CONFIG = {
   // Visual settings
   PIXEL_SIZE: 4,
   WHITE_TO_BLACK_MS: 5000,
-  BURN_THROUGH_MS: 10000
+  BURN_THROUGH_MS: 10000,
+
+  // Screen viewport configs
+  // Each screen shows a zoomed-in portion of one triptych image.
+  // imageIndex: which of the 3 triptych images (0, 1, or 2)
+  // viewportX/Y: top-left corner of the viewport as fraction of full image (0-1)
+  // viewportWidth/Height: size of the viewport as fraction of full image (0-1)
+  SCREEN_CONFIGS: [
+    // Screen 1: iPad landscape — zoomed section of image 1
+    { imageIndex: 0, viewportX: 0.2, viewportY: 0.2, viewportWidth: 0.6, viewportHeight: 0.6 },
+    // Screen 2: iPad landscape — left portion of image 2
+    { imageIndex: 1, viewportX: 0.0, viewportY: 0.2, viewportWidth: 0.5, viewportHeight: 0.6 },
+    // Screen 3: iPad landscape — right portion of image 2
+    { imageIndex: 1, viewportX: 0.5, viewportY: 0.2, viewportWidth: 0.5, viewportHeight: 0.6 },
+    // Screen 4: iPhone 11 portrait — narrow section of image 3
+    { imageIndex: 2, viewportX: 0.35, viewportY: 0.15, viewportWidth: 0.3, viewportHeight: 0.7 },
+  ]
 };

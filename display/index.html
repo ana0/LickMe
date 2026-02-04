@@ -605,31 +605,33 @@
         }
 
         // Setup Firebase listeners for touch events from each screen
+        // Routes touches to the correct display canvas based on SCREEN_CONFIGS imageIndex
         function setupScreenListeners() {
             const connectionTime = Date.now();
 
-            for (let i = 0; i < 3; i++) {
+            CONFIG.SCREEN_CONFIGS.forEach((screenCfg, i) => {
                 const screenKey = `screen${i + 1}`;
                 const touchesRef = database.ref(`screens/${screenKey}/touches`);
-                const screenIndex = i;
+                const displayCanvasIndex = screenCfg.imageIndex; // Which of the 3 display canvases
 
                 // Listen for new touches - only process ones after we connected
                 touchesRef.on('child_added', (snapshot) => {
                     const touch = snapshot.val();
                     if (!touch || touch.t < connectionTime - 1000) return;
 
-                    // Convert normalized coordinates to display canvas space
-                    const canvas = canvases[screenIndex];
+                    // Touch nx/ny are already in full-image normalized space
+                    // Convert to display canvas pixel coordinates
+                    const canvas = canvases[displayCanvasIndex];
                     const x = touch.nx * canvas.width;
                     const y = touch.ny * canvas.height;
-                    triggerSpread(screenIndex, x, y);
+                    triggerSpread(displayCanvasIndex, x, y);
                 });
 
                 // Listen for full clear (on artwork change)
                 const screenRef = database.ref(`screens/${screenKey}`);
                 screenRef.on('value', (snapshot) => {
                     if (!snapshot.exists() || !snapshot.child('touches').exists()) {
-                        const state = screenState[screenIndex];
+                        const state = screenState[displayCanvasIndex];
                         state.localPixels.clear();
                         state.dripPixels.clear();
                         state.growthQueue.length = 0;
@@ -638,7 +640,7 @@
                         state.isGrowing = false;
                     }
                 });
-            }
+            });
         }
 
         // Master cycling logic (display can also be master)
@@ -759,6 +761,7 @@
                     database.ref('screens/screen1/touches').remove();
                     database.ref('screens/screen2/touches').remove();
                     database.ref('screens/screen3/touches').remove();
+                    database.ref('screens/screen4/touches').remove();
 
                     lastEventId = latestEvent.id;
                 }

@@ -61,7 +61,8 @@
         const urlParams = new URLSearchParams(window.location.search);
         const screenId = urlParams.get('screen') || '1';
         const screenKey = `screen${screenId}`;
-        const screenIndex = parseInt(screenId) - 1; // 0, 1, or 2 for array indexing
+        const screenIndex = parseInt(screenId) - 1; // 0-3 for array indexing
+        const screenConfig = CONFIG.SCREEN_CONFIGS[screenIndex];
 
         // Database references (set after auth)
         let database;
@@ -95,15 +96,18 @@
         let colorSampleCanvas = null;
         let colorSampleCtx = null;
 
-        // Sample color from the image at given coordinates
+        // Sample color from the image at given coordinates (screen-local)
+        // Maps through the viewport to sample the correct region of the full image
         function sampleColor(x, y) {
             if (!colorSampleCtx || !currentImage) {
                 return { r: 128, g: 128, b: 128 }; // Default gray
             }
             try {
-                // Scale coordinates to sample canvas size
-                const sampleX = Math.floor((x / canvas.width) * colorSampleCanvas.width);
-                const sampleY = Math.floor((y / canvas.height) * colorSampleCanvas.height);
+                // Map screen coords through viewport to full image coords
+                const imageNx = screenConfig.viewportX + (x / canvas.width) * screenConfig.viewportWidth;
+                const imageNy = screenConfig.viewportY + (y / canvas.height) * screenConfig.viewportHeight;
+                const sampleX = Math.floor(imageNx * colorSampleCanvas.width);
+                const sampleY = Math.floor(imageNy * colorSampleCanvas.height);
                 const pixel = colorSampleCtx.getImageData(sampleX, sampleY, 1, 1).data;
                 return { r: pixel[0], g: pixel[1], b: pixel[2] };
             } catch (e) {
@@ -146,6 +150,16 @@
             return metadata;
         }
 
+        // Draw the zoomed viewport portion of the current image
+        function drawZoomedImage() {
+            if (!currentImage) return;
+            const sx = screenConfig.viewportX * currentImage.width;
+            const sy = screenConfig.viewportY * currentImage.height;
+            const sw = screenConfig.viewportWidth * currentImage.width;
+            const sh = screenConfig.viewportHeight * currentImage.height;
+            ctx.drawImage(currentImage, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
+        }
+
         // Load and display current artwork image
         function loadArtworkImage(index) {
             if (index < 0 || index >= artworkMetadata.length) return;
@@ -153,12 +167,9 @@
             const artworkSet = artworkMetadata[index]; // This is an array of 3 images
             if (!artworkSet || artworkSet.length !== 3) return;
 
-            // Get the image for THIS screen (screenIndex: 0, 1, or 2)
-            const artwork = artworkSet[screenIndex];
+            // Get the image for THIS screen based on config imageIndex
+            const artwork = artworkSet[screenConfig.imageIndex];
             if (!artwork || !artwork.image) return;
-
-            // Set background image
-            document.body.style.backgroundImage = `url('${artwork.image}')`;
 
             // Load image for canvas overlay
             const img = new Image();
@@ -166,10 +177,10 @@
             img.src = artwork.image;
             img.onload = () => {
                 currentImage = img;
-                // Redraw canvas with new image
-                ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+                // Draw zoomed viewport portion
+                drawZoomedImage();
 
-                // Create offscreen canvas for color sampling
+                // Create offscreen canvas for color sampling (full image)
                 colorSampleCanvas = document.createElement('canvas');
                 colorSampleCanvas.width = img.width;
                 colorSampleCanvas.height = img.height;
@@ -177,7 +188,6 @@
                 colorSampleCtx.drawImage(img, 0, 0);
             };
             img.onerror = () => {
-                // Fallback to dark background
                 currentImage = null;
                 colorSampleCanvas = null;
                 colorSampleCtx = null;
@@ -194,9 +204,9 @@
             growthQueue.length = 0;
             drips.length = 0;
             isGrowing = false;
-            // Clear canvas and redraw image
+            // Clear canvas and redraw zoomed image
             if (currentImage) {
-                ctx.drawImage(currentImage, 0, 0, canvas.width, canvas.height);
+                drawZoomedImage();
             } else {
                 ctx.fillStyle = '#2a2a2a';
                 ctx.fillRect(0, 0, canvas.width, canvas.height);
@@ -435,11 +445,12 @@
             const centerX = Math.floor(clientX / pixelSize) * pixelSize;
             const centerY = Math.floor(clientY / pixelSize) * pixelSize;
 
-            // Send normalized touch coordinates to Firebase for display
+            // Send touch coordinates as full-image normalized coords for display
+            // Convert from screen-local space through viewport to full image space
             if (touchesRef) {
                 touchesRef.push({
-                    nx: clientX / canvas.width,
-                    ny: clientY / canvas.height,
+                    nx: screenConfig.viewportX + (clientX / canvas.width) * screenConfig.viewportWidth,
+                    ny: screenConfig.viewportY + (clientY / canvas.height) * screenConfig.viewportHeight,
                     t: Date.now()
                 });
             }
@@ -545,9 +556,9 @@
             // Update drips
             updateDrips();
 
-            // Draw base image first
+            // Draw base image (zoomed viewport)
             if (currentImage) {
-                ctx.drawImage(currentImage, 0, 0, canvas.width, canvas.height);
+                drawZoomedImage();
             }
 
             // Draw pixels - fade from white to sampled color, then stay
@@ -745,6 +756,7 @@
                     database.ref('screens/screen1/touches').remove();
                     database.ref('screens/screen2/touches').remove();
                     database.ref('screens/screen3/touches').remove();
+                    database.ref('screens/screen4/touches').remove();
 
                     // Update last known event
                     lastEventId = latestEvent.id;
@@ -835,7 +847,7 @@
             canvas.width = window.innerWidth;
             canvas.height = window.innerHeight;
             if (currentImage) {
-                ctx.drawImage(currentImage, 0, 0, canvas.width, canvas.height);
+                drawZoomedImage();
             }
         });
 
