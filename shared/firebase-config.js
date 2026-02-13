@@ -134,6 +134,32 @@ ARTWORK_SETS: [
   ],
 ],
 
+  // Maps each ARTWORK_SETS index to its ARTIFACTS index (or null if no artifact).
+  // Edit this array to fix artwork↔metadata pairings.
+  // e.g. index 0 means artwork set 1 (collection/1) shows ARTIFACTS[0], etc.
+  ARTWORK_TO_ARTIFACT: [
+    1,    // Artifact 0:  "Jewelry, The Thief of Bagdad Brooches"
+    3,    // Artifact 1:  "Dixie Ice Cream Lid featuring Irene Dunne"
+    4,    // Artifact 2:  "Marionette, Small Fry Club"
+    6,    // Artifact 3:  "Doll, Jean Darling from Our Gang"
+    7,    // Artifact 4:  "Doll, Farina"
+    8,    // Artifact 5:  "Pola Negri Souvenir Spoon"
+    9,    // Artifact 6:  "Table game, Home Screen Test"
+    10,    // Artifact 7:  "Toys, Kolor-Kraft Our Gang Paint Set"
+    11,    // Artifact 8:  "Charlie Chaplin Pencil Box"
+    12,    // Artifact 9:  "Paper doll, Charlie Chaplin"
+    13,   // Artifact 10: "Jacket, The Scarlet Letter"
+    14,   // Artifact 11: "Jacket, Monsieur Beaucaire"
+    15,   // Artifact 12: "Socks, Betty Boop"
+    16,   // Artifact 13: "Preview slide, Homeward Bound"
+    18,   // Artifact 14: "Marilyn Monroe High Heel Shoes"
+    19,   // Artifact 15: "Activity book, Margaret O'Brien Paint Book"
+    null, // (no artifact) 
+    null, // (no artifact)
+    null, // (no artifact)
+    // Collection items 2, 5, and 17 have no metadata
+  ],
+
   ARTIFACTS: [
     {
       title: "Jewelry, The Thief of Bagdad Brooches",

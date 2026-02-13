@@ -52,11 +52,37 @@
             font-family: monospace;
             font-size: 24px;
         }
+
+        #artwork-info {
+            position: fixed;
+            bottom: 20px;
+            left: 20px;
+            color: #fff;
+            font-family: monospace;
+            font-size: 13px;
+            line-height: 1.4;
+            z-index: 100;
+            background: rgba(0,0,0,0.6);
+            padding: 10px 14px;
+            border-radius: 4px;
+            max-width: 420px;
+        }
+
+        #artwork-info .artwork-title {
+            font-size: 15px;
+            font-weight: bold;
+            margin-bottom: 4px;
+        }
+
+        #artwork-info .artwork-detail {
+            opacity: 0.85;
+        }
     </style>
 </head>
 <body>
     <div id="loading">Loading...</div>
     <div id="status"></div>
+    <div id="artwork-info"></div>
     <div id="container">
         <canvas id="canvas1" class="screen-canvas"></canvas>
         <canvas id="canvas2" class="screen-canvas"></canvas>
@@ -94,6 +120,7 @@
         let artworkMetadata = [];
         let currentImages = [null, null, null];
         let isMaster = false;
+        let lastArtworkChangeTime = Date.now();
 
         // Color sampling canvases for each screen
         let colorSampleCanvases = [null, null, null];
@@ -182,9 +209,45 @@
             return metadata;
         }
 
+        // Build reverse lookup: collection number → artifact index
+        // ARTWORK_TO_ARTIFACT maps artifact index → collection number,
+        // so we invert it to go from artwork set index → artifact.
+        const collectionToArtifact = {};
+        CONFIG.ARTWORK_TO_ARTIFACT.forEach((collectionNum, artifactIndex) => {
+            if (collectionNum != null) {
+                // Artwork set index is collection number - 1 (0-indexed)
+                collectionToArtifact[collectionNum - 1] = artifactIndex;
+            }
+        });
+
+        // Update artwork info overlay
+        function updateArtworkInfo(index) {
+            const infoEl = document.getElementById('artwork-info');
+            const artifactIndex = collectionToArtifact[index];
+            const artifact = artifactIndex != null ? CONFIG.ARTIFACTS[artifactIndex] : null;
+            if (!artifact) {
+                infoEl.style.display = 'none';
+                return;
+            }
+            infoEl.style.display = '';
+
+            const lines = [];
+            lines.push(`<div class="artwork-title">${artifact.title}</div>`);
+            if (artifact.date) lines.push(`<div class="artwork-detail">${artifact.date}</div>`);
+            if (artifact.material && artifact.material.length > 0) lines.push(`<div class="artwork-detail">${artifact.material.join(', ')}</div>`);
+            if (artifact.dimensions) lines.push(`<div class="artwork-detail">${artifact.dimensions}</div>`);
+            if (artifact.relatedProduction) lines.push(`<div class="artwork-detail">${artifact.relatedProduction}</div>`);
+            if (artifact.credit) lines.push(`<div class="artwork-detail">${artifact.credit}</div>`);
+            if (artifact.number) lines.push(`<div class="artwork-detail">#${artifact.number}</div>`);
+
+            infoEl.innerHTML = lines.join('');
+        }
+
         // Load and display current artwork image on all canvases
         function loadArtworkImage(index) {
             if (index < 0 || index >= artworkMetadata.length) return;
+
+            updateArtworkInfo(index);
 
             const artworkSet = artworkMetadata[index];
             if (!artworkSet || artworkSet.length !== 3) return;
@@ -726,12 +789,37 @@
             }
         }
 
+        // Advance to next artwork via Firebase (used by master cycle and debug hotkey)
+        function cycleToArtwork(nextIndex) {
+            currentArtworkRef.set({
+                index: nextIndex,
+                lastChanged: firebase.database.ServerValue.TIMESTAMP
+            });
+
+            // Clear touches in Firebase
+            database.ref('screens/screen1/touches').remove();
+            database.ref('screens/screen2/touches').remove();
+            database.ref('screens/screen3/touches').remove();
+            database.ref('screens/screen4/touches').remove();
+
+            lastArtworkChangeTime = Date.now();
+        }
+
         function startMasterCycle() {
             let lastEventId = null;
             let isFirstPoll = true;
+            const AUTO_CYCLE_MS = 10 * 60 * 1000; // 10 minutes
 
             setInterval(async () => {
                 if (!isMaster || artworkMetadata.length === 0) return;
+
+                // Auto-cycle if no change for 10 minutes
+                if (Date.now() - lastArtworkChangeTime >= AUTO_CYCLE_MS) {
+                    console.log('AUTO-CYCLE: No artwork change for 10 minutes, advancing...');
+                    const nextIndex = (currentArtworkIndex + 1) % artworkMetadata.length;
+                    cycleToArtwork(nextIndex);
+                    return;
+                }
 
                 const latestEvent = await getLatestSaleEvent();
                 if (!latestEvent) return;
@@ -750,18 +838,7 @@
                     console.log('   Event ID:', latestEvent.id);
 
                     const nextIndex = (currentArtworkIndex + 1) % artworkMetadata.length;
-
-                    // Update Firebase
-                    currentArtworkRef.set({
-                        index: nextIndex,
-                        lastChanged: firebase.database.ServerValue.TIMESTAMP
-                    });
-
-                    // Clear touches in Firebase
-                    database.ref('screens/screen1/touches').remove();
-                    database.ref('screens/screen2/touches').remove();
-                    database.ref('screens/screen3/touches').remove();
-                    database.ref('screens/screen4/touches').remove();
+                    cycleToArtwork(nextIndex);
 
                     lastEventId = latestEvent.id;
                 }
@@ -777,6 +854,7 @@
                     const safeIndex = data.index % Math.max(1, artworkMetadata.length);
                     if (safeIndex !== currentArtworkIndex) {
                         currentArtworkIndex = safeIndex;
+                        lastArtworkChangeTime = Date.now();
                         clearAllPixels();
                         loadArtworkImage(currentArtworkIndex);
                     }
@@ -834,6 +912,23 @@
 
         // Handle resize
         window.addEventListener('resize', resizeCanvases);
+
+        // Debug hotkeys: ArrowRight = next artwork, ArrowLeft = previous artwork
+        window.addEventListener('keydown', (e) => {
+            if (artworkMetadata.length === 0) return;
+
+            let nextIndex = null;
+            if (e.key === 'ArrowRight') {
+                nextIndex = (currentArtworkIndex + 1) % artworkMetadata.length;
+            } else if (e.key === 'ArrowLeft') {
+                nextIndex = (currentArtworkIndex - 1 + artworkMetadata.length) % artworkMetadata.length;
+            }
+
+            if (nextIndex !== null) {
+                console.log(`DEBUG: Manual artwork switch to ${nextIndex + 1}/${artworkMetadata.length}`);
+                cycleToArtwork(nextIndex);
+            }
+        });
 
         // Start
         init();
