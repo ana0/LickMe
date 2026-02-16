@@ -117,10 +117,25 @@
         // State
         const pixelSize = CONFIG.PIXEL_SIZE;
         let currentArtworkIndex = 0;
+        let displayOrder = []; // Shuffled indices into artworkMetadata
         let artworkMetadata = [];
         let currentImages = [null, null, null];
         let isMaster = false;
         let lastArtworkChangeTime = Date.now();
+
+        // Fisher-Yates shuffle
+        function shuffleArray(arr) {
+            for (let i = arr.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [arr[i], arr[j]] = [arr[j], arr[i]];
+            }
+            return arr;
+        }
+
+        // Get the actual artwork index for the current display position
+        function getArtworkIndex(displayPos) {
+            return displayOrder[displayPos] ?? displayPos;
+        }
 
         // Color sampling canvases for each screen
         let colorSampleCanvases = [null, null, null];
@@ -244,12 +259,14 @@
         }
 
         // Load and display current artwork image on all canvases
-        function loadArtworkImage(index) {
-            if (index < 0 || index >= artworkMetadata.length) return;
+        // displayPos = position in shuffled display order
+        function loadArtworkImage(displayPos) {
+            if (displayPos < 0 || displayPos >= artworkMetadata.length) return;
 
-            updateArtworkInfo(index);
+            const actualIndex = getArtworkIndex(displayPos);
+            updateArtworkInfo(actualIndex);
 
-            const artworkSet = artworkMetadata[index];
+            const artworkSet = artworkMetadata[actualIndex];
             if (!artworkSet || artworkSet.length !== 3) return;
 
             canvases.forEach((canvas, i) => {
@@ -547,7 +564,7 @@
             }
 
             if (edgePixelsNearby.length > 0) {
-                const expandCount = Math.min(edgePixelsNearby.length, 10);
+                const expandCount = Math.min(edgePixelsNearby.length, 5);
                 for (let i = 0; i < expandCount; i++) {
                     const pixel = edgePixelsNearby[Math.floor(Math.random() * edgePixelsNearby.length)];
                     state.growthQueue.push({
@@ -562,7 +579,7 @@
             } else {
                 addPixel(screenIndex, centerX, centerY, touchColor);
 
-                const seedCount = 8;
+                const seedCount = 4;
                 for (let i = 0; i < seedCount; i++) {
                     const angle = (Math.PI * 2 / seedCount) * i + Math.random() * 0.3;
                     const dist = pixelSize * (1 + Math.floor(Math.random() * 3));
@@ -882,6 +899,9 @@
             resizeCanvases();
 
             artworkMetadata = await loadArtworkMetadata();
+
+            // Build shuffled display order
+            displayOrder = shuffleArray(artworkMetadata.map((_, i) => i));
 
             if (artworkMetadata.length === 0) {
                 loadingEl.textContent = 'Error: No artworks loaded';

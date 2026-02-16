@@ -2,6 +2,7 @@ app/node_modules
 Tezos/deploy/node_modules
 .env
 Tezos/venv
+*.psd
 
 # Firebase private configuration
 shared/firebase-config.private.js

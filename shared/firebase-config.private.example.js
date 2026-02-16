@@ -3,6 +3,11 @@
 // Get these values from your Firebase project settings:
 // https://console.firebase.google.com/project/YOUR_PROJECT/settings/general
 
+// Email/password credentials for Firebase Auth
+// Create this account in Firebase Console → Authentication → Users
+window.FIREBASE_AUTH_EMAIL = "YOUR_EMAIL@example.com";
+window.FIREBASE_AUTH_PASSWORD = "YOUR_PASSWORD";
+
 // Set the Firebase config as a global variable
 window.FIREBASE_CONFIG_PRIVATE = {
   apiKey: "YOUR_API_KEY",

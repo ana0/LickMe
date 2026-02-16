@@ -19,12 +19,21 @@ if (!window.FIREBASE_CONFIG_PRIVATE) {
   console.warn('⚠️ Firebase config not found! Create firebase-config.private.js with your project credentials.');
 }
 
-// Initialize Firebase and sign in anonymously
+if (!window.FIREBASE_AUTH_EMAIL || !window.FIREBASE_AUTH_PASSWORD) {
+  console.warn('⚠️ Firebase auth credentials not found! Add FIREBASE_AUTH_EMAIL and FIREBASE_AUTH_PASSWORD to firebase-config.private.js');
+}
+
+// Initialize Firebase and sign in with email/password
 async function initFirebase() {
   firebase.initializeApp(firebaseConfig);
   try {
-    await firebase.auth().signInAnonymously();
-    console.log('Signed in anonymously');
+    const email = window.FIREBASE_AUTH_EMAIL;
+    const password = window.FIREBASE_AUTH_PASSWORD;
+    if (!email || !password) {
+      throw new Error('Missing FIREBASE_AUTH_EMAIL or FIREBASE_AUTH_PASSWORD in firebase-config.private.js');
+    }
+    const userCredential = await firebase.auth().signInWithEmailAndPassword(email, password);
+    console.log('Signed in as ' + userCredential.user.email);
     return true;
   } catch (error) {
     console.error('Auth error:', error);
@@ -132,6 +141,21 @@ ARTWORK_SETS: [
     "/collections/19/img-02.png",
     "/collections/19/img-03.png",
   ],
+  [
+    "/collections/20/img-01.jpg",
+    "/collections/20/img-02.jpg",
+    "/collections/20/img-03.jpg",
+  ],
+  [
+    "/collections/21/img-01.jpg",
+    "/collections/21/img-02.jpg",
+    "/collections/21/img-03.jpg",
+  ],
+  [
+    "/collections/22/img-01.jpg",
+    "/collections/22/img-02.jpg",
+    "/collections/22/img-03.jpg",
+  ],
 ],
 
   // Maps each ARTWORK_SETS index to its ARTIFACTS index (or null if no artifact).
@@ -155,9 +179,11 @@ ARTWORK_SETS: [
     18,   // Artifact 14: "Marilyn Monroe High Heel Shoes"
     19,   // Artifact 15: "Activity book, Margaret O'Brien Paint Book"
     null, // (no artifact) 
+    17, // (no artifact)
     null, // (no artifact)
-    null, // (no artifact)
-    // Collection items 2, 5, and 17 have no metadata
+    20, // Artifact 19
+    22, // Artifact 20
+    21, // Artifact 21
   ],
 
   ARTIFACTS: [
@@ -390,6 +416,62 @@ ARTWORK_SETS: [
         { name: "Metro-Goldwyn-Mayer", role: "Licensor" },
         { name: "Whitman Publishing Company", role: "Publisher" }
       ]
+    },
+    {},
+    {
+      title: "Jewelry, The Thief of Bagdad Brooches",
+      description:
+        'Brooches inspired by situations in the film The Thief of Bagdad. One brooch features a man with a turban sitting around a crystal ball; the other depicts a man holding an oil lamp. Text on the back of both reads, "Thief of Bagdad / Korda."',
+      relatedProduction: "The Thief of Bagdad (1940)",
+      material: ["Metal"],
+      dimensions: "1.5 x 3.5",
+      date: "ca. 1940",
+      number: "1987.005.0001-.0002",
+      credit: null,
+      creatorMaker: []
+    },
+    {},
+    {
+      title: "Motion picture camera, Akeley 35mm \"Pancake\" Motion Picture Camera",
+      description:
+        '35mm silent, hand-cranked Akeley "Pancake" motion-picture camera. The matched lens set provided one lens for photography, another, immediately adjacent, for the viewfinder. The camera has a single handle, and its original case. The serial number for the camera body is 65, and the arm is 179. A label on the camera reads, "Property of Movietonews New York City."',
+      relatedProduction: null,
+      material: ["Metal", "Glass"],
+      dimensions: '6" H x 1.5" W13"H x 6" W x 15" D',
+      date: "1918",
+      number: "1993.019.0042.1",
+      credit: "Gift of the Dennis J. Bossone Estate",
+      historicNote:
+        "This camera was designed by Carl Akeley, a curator at the American Museum of Natural History who was also an explorer, taxidermist, sculptor, and inventor. Designed for use in Akeley’s African field expeditions, the camera was designed to make it easier to photograph moving objects from a distance. A single handle made rapid tilting and panning possible, while the viewfinder was mounted so that it would adjust comfortably to the eye of its operator, no matter how the camera was tilted. The camera’s focal-plane shutter made maximum use of light for exposure. In the early days of newsreels, a New York Times reporter wrote on 30 October 1927, \"horse racing, automobile races and similar scenes that required panoraming were most difficult to secure. Turning the film crank with one hand and trying to pan, tilt and keep the clumsy camera steady with the other was no child's play.\" The invention of Akeley's 35mm pancake camera and tripod \"solved one of the greatest problems for the newsreel cameraman.\" Filmmaker Robert Flaherty used two Akeley cameras to film Nanook of the North (1922) and cinematographers often used the camera for aerial combat films, like Hell Divers (1932). According to Carl Akeley's wife, Mary L. Jobe Akeley, by 1953, the Akeley Camera had \"been used by practically all the motion picture producers in the United States.\" This particular camera (\"Pancake\" Camera #65 (#179 on arm)) was used for many years by Dennis Bossone, a Philadelphia-based cameraman for Fox Movietone News and other newsreel services.",
+      creatorMaker: [{ name: "Akeley Camera Inc.", role: "Manufacturer" }, { name: "Carl Akeley", role: "Designer" }],
+    },
+    {
+      title: "Motion picture camera, Bell & Howell 35mm Eyemo Model MM camera",
+      description:
+        'Bell & Howell 35mm Eyemo Model MM Camera with the serial number 912406. The camera comes with a carrying case printed with text that reads, "NBC TV News." The camera has a rotating turret with space for three lenses; two are currently attached. The non-reflex viewfinder has a corresponding smaller turret. Inside the camera, there is an uptake reel made by the Dupont Company. Text on the side of the camera reads, "EYEMO: Makes Movies as the Eye Sees / 35mm Camera / 71 MM / Bell & Howell Co / Chicago / Made in USA." On the front of the camera, letters stenciled in yellow paint read, "NBC." The camera also comes with two filters stored in a handmade paper case.',
+      relatedProduction: null,
+      material: ["Metal", "Leather", "Wood"],
+      dimensions: '12 x 6 x 6',
+      date: "1942",
+      number: "1982.215.0001.1",
+      credit: "Gift of the Dennis J. Bossone Estate",
+      historicNote:
+        "Bell & Howell introduced the 35mm Eyemo in 1925, two years after successfully marketing a portable 16mm camera called the Filmo. The professional-quality Eyemo remained popular until the sound era created a demand for quieter cameras. The camera was still used up until the 1970s for shots that did not require synchronized sound recording, such as action sequences. During World War II, the US Army also used these cheap and durable cameras on the outside of fighter planes for reconnaissance and training films. The camera was popular with journalists throughout World War II. After the war, many Eyemo cameras were used by television news crews for events that could not be broadcast live.",
+      creatorMaker: [{ name: "Dupont", role: "Manufacturer" }, { name: "Bell & Howell Co.", role: "Manufacturer" }],
+    },
+    {
+      title: "Motion picture camera, Western Electric 35mm Single-System Newsreel Camera",
+      description:
+        'Western Electric 35mm single-system newsreel camera, which uses a light valve assembly for recording synchronous sound to a variable density optical soundtrack. The camera has Akeley movement and is shown with a 2000\' silenced Bell & Howell magazine. It is shown here without its motor, and without the additional soundhead and amplifier required for recording synchronous sound.',
+      relatedProduction: null,
+      material: ["Metal"],
+      dimensions: '21 x 11 x 22',
+      date: "1928",
+      number: "1988.015.0001a-b",
+      credit: "Gift of James C. Shields",
+      historicNote:
+        "This camera uses light-valve recording yokes to record sound to a variable density optical soundtrack, but because it required both an additional soundhead or mixer and an amplifier, it was very bulky and was primarily used for stationary newsreel interviews.",
+      creatorMaker: [{ name: "Akeley Camera Inc", role: "Manufacturer" }, { name: "Bell & Howell Co.", role: "Manufacturer" }, { name: "Western Electric Company", role: "Manufacturer" }],
     }
   ],
   // Timing
@@ -420,3 +502,18 @@ ARTWORK_SETS: [
     { imageIndex: 2, viewportX: 0.35, viewportY: 0.15, viewportWidth: 0.3, viewportHeight: 0.7 },
   ]
 };
+
+// Auto-refresh at midnight EST
+(function scheduleMidnightRefresh() {
+  const now = new Date();
+  const midnightEST = new Date(now.toLocaleString('en-US', { timeZone: 'America/New_York' }));
+  midnightEST.setHours(24, 0, 0, 0);
+
+  // Convert back to local time by computing the offset
+  const nowInEST = new Date(now.toLocaleString('en-US', { timeZone: 'America/New_York' }));
+  const estOffset = now.getTime() - nowInEST.getTime();
+  const msUntilMidnight = midnightEST.getTime() + estOffset - now.getTime();
+
+  console.log(`Page will refresh at midnight EST (in ${Math.round(msUntilMidnight / 60000)} minutes)`);
+  setTimeout(() => location.reload(), msUntilMidnight);
+})();
