@@ -486,20 +486,24 @@ ARTWORK_SETS: [
   WHITE_TO_BLACK_MS: 5000,
   BURN_THROUGH_MS: 10000,
 
+  // Source image aspect ratios for each triptych position
+  // img-01 and img-03 are 4725x3544 (4:3), img-02 is 9450x3544 (8:3, double-width center panel)
+  IMAGE_ASPECTS: [4/3, 8/3, 4/3],
+
   // Screen viewport configs
   // Each screen shows a zoomed-in portion of one triptych image.
   // imageIndex: which of the 3 triptych images (0, 1, or 2)
   // viewportX/Y: top-left corner of the viewport as fraction of full image (0-1)
   // viewportWidth/Height: size of the viewport as fraction of full image (0-1)
   SCREEN_CONFIGS: [
-    // Screen 1: iPad landscape (4:3) — zoomed section of image 1
-    { imageIndex: 0, viewportX: 0.275, viewportY: 0.2, viewportWidth: 0.45, viewportHeight: 0.6 },
-    // Screen 2: iPad landscape (4:3) — left portion of image 2
-    { imageIndex: 1, viewportX: 0.025, viewportY: 0.2, viewportWidth: 0.45, viewportHeight: 0.6 },
-    // Screen 3: iPad landscape (4:3) — right portion of image 2
-    { imageIndex: 1, viewportX: 0.525, viewportY: 0.2, viewportWidth: 0.45, viewportHeight: 0.6 },
-    // Screen 4: iPhone 11 portrait — narrow section of image 3
-    { imageIndex: 2, viewportX: 0.35, viewportY: 0.15, viewportWidth: 0.3, viewportHeight: 0.7 },
+    // Screen 1: iPhone 11 portrait — zoomed section of image 1
+    { imageIndex: 0, viewportX: 0.275, viewportY: 0.2, viewportWidth: 0.3, viewportHeight: 0.7 },
+    // Screen 2: iPad landscape (4.3:3) — left portion of image 2 (8:3 source)
+    { imageIndex: 1, viewportX: 0.05, viewportY: 0.2, viewportWidth: 0.3225, viewportHeight: 0.6 },
+    // Screen 3: iPad landscape (4.3:3) — right portion of image 2 (8:3 source)
+    { imageIndex: 1, viewportX: 0.6275, viewportY: 0.2, viewportWidth: 0.3225, viewportHeight: 0.6 },
+    // Screen 4: iPad landscape (4.3:3) — section of image 3
+    { imageIndex: 2, viewportX: 0.1775, viewportY: 0.15, viewportWidth: 0.645, viewportHeight: 0.6 },
   ]
 };
 

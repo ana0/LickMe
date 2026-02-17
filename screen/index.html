@@ -75,8 +75,40 @@
         const ctx = canvas.getContext('2d');
         const statusEl = document.getElementById('status');
 
-        canvas.width = window.innerWidth;
-        canvas.height = window.innerHeight;
+        // Compute crop aspect ratio using per-image source aspect
+        const sourceAspect = CONFIG.IMAGE_ASPECTS[screenConfig.imageIndex];
+        const cropAspect = (screenConfig.viewportWidth / screenConfig.viewportHeight) * sourceAspect;
+
+        function resizeCanvas() {
+            const windowW = window.innerWidth;
+            const windowH = window.innerHeight;
+            const windowAspect = windowW / windowH;
+
+            let canvasW, canvasH;
+            if (windowAspect > cropAspect) {
+                // Window is wider than crop — fit to height
+                canvasH = windowH;
+                canvasW = Math.floor(windowH * cropAspect);
+            } else {
+                // Window is taller than crop — fit to width
+                canvasW = windowW;
+                canvasH = Math.floor(windowW / cropAspect);
+            }
+
+            canvas.width = canvasW;
+            canvas.height = canvasH;
+            canvas.style.width = canvasW + 'px';
+            canvas.style.height = canvasH + 'px';
+            canvas.style.left = Math.floor((windowW - canvasW) / 2) + 'px';
+            canvas.style.top = Math.floor((windowH - canvasH) / 2) + 'px';
+        }
+        resizeCanvas();
+
+        // Convert client (viewport) coordinates to canvas coordinates
+        function toCanvasCoords(clientX, clientY) {
+            const rect = canvas.getBoundingClientRect();
+            return { x: clientX - rect.left, y: clientY - rect.top };
+        }
 
         // State
         const pixelSize = CONFIG.PIXEL_SIZE;
@@ -547,7 +579,8 @@
         function handleTouch(e) {
             e.preventDefault();
             for (const touch of e.changedTouches) {
-                triggerSpread(touch.clientX, touch.clientY);
+                const coords = toCanvasCoords(touch.clientX, touch.clientY);
+                triggerSpread(coords.x, coords.y);
             }
         }
 
@@ -558,12 +591,14 @@
         // Mouse fallback for testing
         function handleMouseMove(e) {
             if (e.buttons === 1) { // Left button held
-                triggerSpread(e.clientX, e.clientY);
+                const coords = toCanvasCoords(e.clientX, e.clientY);
+                triggerSpread(coords.x, coords.y);
             }
         }
 
         function handleClick(e) {
-            triggerSpread(e.clientX, e.clientY);
+            const coords = toCanvasCoords(e.clientX, e.clientY);
+            triggerSpread(coords.x, coords.y);
         }
 
         // Drawing loop
@@ -885,8 +920,7 @@
 
         // Handle resize
         window.addEventListener('resize', () => {
-            canvas.width = window.innerWidth;
-            canvas.height = window.innerHeight;
+            resizeCanvas();
             if (currentImage) {
                 drawZoomedImage();
             }
