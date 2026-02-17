@@ -891,8 +891,21 @@
 
             database = firebase.database();
             currentArtworkRef = database.ref('currentArtwork');
+            const displayOrderRef = database.ref('displayOrder');
 
             setupArtworkListener();
+
+            // Listen for displayOrder changes from Firebase
+            displayOrderRef.on('value', (snapshot) => {
+                const data = snapshot.val();
+                if (Array.isArray(data) && data.length > 0) {
+                    displayOrder = data;
+                    // Re-render current artwork with updated order
+                    if (artworkMetadata.length > 0) {
+                        loadArtworkImage(currentArtworkIndex);
+                    }
+                }
+            });
 
             loadingEl.textContent = 'Loading artworks...';
 
@@ -900,8 +913,15 @@
 
             artworkMetadata = await loadArtworkMetadata();
 
-            // Build shuffled display order
-            displayOrder = shuffleArray(artworkMetadata.map((_, i) => i));
+            // Sync shuffled display order via Firebase
+            const orderSnapshot = await displayOrderRef.once('value');
+            const existingOrder = orderSnapshot.val();
+            if (Array.isArray(existingOrder) && existingOrder.length === artworkMetadata.length) {
+                displayOrder = existingOrder;
+            } else {
+                displayOrder = shuffleArray(artworkMetadata.map((_, i) => i));
+                await displayOrderRef.set(displayOrder);
+            }
 
             if (artworkMetadata.length === 0) {
                 loadingEl.textContent = 'Error: No artworks loaded';

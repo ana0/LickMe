@@ -88,9 +88,24 @@
         let isGrowing = false;
         let currentArtworkIndex = 0;
         let artworkMetadata = []; // Loaded from API
+        let displayOrder = []; // Shuffled indices synced from Firebase
         let currentImage = null;
         let isMaster = false;
         let masterCheckDone = false;
+
+        // Fisher-Yates shuffle
+        function shuffleArray(arr) {
+            for (let i = arr.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [arr[i], arr[j]] = [arr[j], arr[i]];
+            }
+            return arr;
+        }
+
+        // Get the actual artwork index for the current display position
+        function getArtworkIndex(displayPos) {
+            return displayOrder[displayPos] ?? displayPos;
+        }
 
         // Offscreen canvas for color sampling
         let colorSampleCanvas = null;
@@ -161,10 +176,12 @@
         }
 
         // Load and display current artwork image
+        // index = position in shuffled display order
         function loadArtworkImage(index) {
             if (index < 0 || index >= artworkMetadata.length) return;
 
-            const artworkSet = artworkMetadata[index]; // This is an array of 3 images
+            const actualIndex = getArtworkIndex(index);
+            const artworkSet = artworkMetadata[actualIndex]; // This is an array of 3 images
             if (!artworkSet || artworkSet.length !== 3) return;
 
             // Get the image for THIS screen based on config imageIndex
@@ -778,6 +795,19 @@
                     }
                 }
             });
+
+            // Listen for displayOrder changes
+            database.ref('displayOrder').on('value', (snapshot) => {
+                const data = snapshot.val();
+                if (Array.isArray(data) && data.length > 0) {
+                    displayOrder = data;
+                    // Re-render current artwork with updated order
+                    if (artworkMetadata.length > 0) {
+                        clearAllPixels();
+                        loadArtworkImage(currentArtworkIndex);
+                    }
+                }
+            });
         }
 
         // Initialize
@@ -808,6 +838,17 @@
             if (artworkMetadata.length === 0) {
                 statusEl.textContent = 'Error: No artworks loaded';
                 return;
+            }
+
+            // Sync shuffled display order via Firebase
+            const displayOrderRef = database.ref('displayOrder');
+            const orderSnapshot = await displayOrderRef.once('value');
+            const existingOrder = orderSnapshot.val();
+            if (Array.isArray(existingOrder) && existingOrder.length === artworkMetadata.length) {
+                displayOrder = existingOrder;
+            } else {
+                displayOrder = shuffleArray(artworkMetadata.map((_, i) => i));
+                await displayOrderRef.set(displayOrder);
             }
 
             // Check current artwork index from Firebase
