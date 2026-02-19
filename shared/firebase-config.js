@@ -496,8 +496,8 @@ ARTWORK_SETS: [
   // viewportX/Y: top-left corner of the viewport as fraction of full image (0-1)
   // viewportWidth/Height: size of the viewport as fraction of full image (0-1)
   SCREEN_CONFIGS: [
-    // Screen 1: iPhone 11 portrait (9:19.5) — zoomed section of image 1
-    { imageIndex: 0, viewportX: 0.304, viewportY: 0.2, viewportWidth: 0.242, viewportHeight: 0.7 },
+    // Screen 1: portrait (414x831) — zoomed section of image 1
+    { imageIndex: 0, viewportX: 0.304, viewportY: 0.2, viewportWidth: 0.2616, viewportHeight: 0.7 },
     // Screen 2: iPad landscape (4.3:3) — left portion of image 2 (8:3 source)
     //{ imageIndex: 1, viewportX: 0.05, viewportY: 0.2, viewportWidth: 0.3225, viewportHeight: 0.6 },
     { imageIndex: 1, viewportX: 0.05, viewportY: 0.2, viewportWidth: 0.342, viewportHeight: 0.6 },
