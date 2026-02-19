@@ -30,19 +30,6 @@
             border: none;
         }
 
-        #status {
-            position: fixed;
-            top: 10px;
-            left: 10px;
-            color: #fff;
-            font-family: monospace;
-            font-size: 14px;
-            z-index: 100;
-            background: rgba(0,0,0,0.5);
-            padding: 5px 10px;
-            border-radius: 4px;
-        }
-
         #loading {
             position: fixed;
             top: 50%;
@@ -81,7 +68,6 @@
 </head>
 <body>
     <div id="loading">Loading...</div>
-    <div id="status"></div>
     <div id="artwork-info"></div>
     <div id="container">
         <canvas id="canvas1" class="screen-canvas"></canvas>
@@ -112,7 +98,6 @@
         const contexts = canvases.map(c => c.getContext('2d'));
 
         const loadingEl = document.getElementById('loading');
-        const statusEl = document.getElementById('status');
 
         // State
         const pixelSize = CONFIG.PIXEL_SIZE;
@@ -675,11 +660,6 @@
                     }
                 });
             });
-
-            // Update status
-            const totalPixels = screenState.reduce((sum, s) => sum + s.localPixels.size, 0);
-            const totalDrips = screenState.reduce((sum, s) => sum + s.dripPixels.size, 0);
-            statusEl.textContent = `Artwork ${currentArtworkIndex + 1}/${artworkMetadata.length} | Pixels: ${totalPixels} | Drips: ${totalDrips}${isMaster ? ' (Master)' : ''}`;
 
             requestAnimationFrame(draw);
         }
