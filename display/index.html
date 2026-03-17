@@ -703,19 +703,8 @@
                     triggerSpread(displayCanvasIndex, x, y);
                 });
 
-                // Listen for full clear (on artwork change)
-                const screenRef = database.ref(`screens/${screenKey}`);
-                screenRef.on('value', (snapshot) => {
-                    if (!snapshot.exists() || !snapshot.child('touches').exists()) {
-                        const state = screenState[displayCanvasIndex];
-                        state.localPixels.clear();
-                        state.dripPixels.clear();
-                        state.growthQueue.length = 0;
-                        state.drips.length = 0;
-                        state.puddleHeights.clear();
-                        state.isGrowing = false;
-                    }
-                });
+                // Pixel clearing on artwork change is handled by setupArtworkListener
+                // (which calls clearAllPixels when currentArtwork changes in Firebase)
             });
         }
 
