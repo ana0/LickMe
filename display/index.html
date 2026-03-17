@@ -105,6 +105,7 @@
         let displayOrder = []; // Shuffled indices into artworkMetadata
         let artworkMetadata = [];
         let currentImages = [null, null, null];
+        let currentLoadId = 0;
         let isMaster = false;
         let lastArtworkChangeTime = Date.now();
 
@@ -175,38 +176,49 @@
             });
         }
 
-        // Load artwork metadata from API
+        // Load artwork metadata from API (retries until all sets load)
         async function loadArtworkMetadata() {
-            const metadata = [];
+            const expectedCount = CONFIG.ARTWORK_SETS.length;
 
-            for (const artworkSet of CONFIG.ARTWORK_SETS) {
-                const setImages = [];
-                for (const url of artworkSet) {
-                    try {
-                        if (url.match(/\.(png|jpg|jpeg|gif|webp)$/i)) {
-                            setImages.push({
-                                name: `Artwork ${metadata.length + 1}`,
-                                image: url
-                            });
-                        } else {
-                            const response = await fetch(url);
-                            if (response.ok) {
-                                const data = await response.json();
+            while (true) {
+                const metadata = [];
+
+                for (const artworkSet of CONFIG.ARTWORK_SETS) {
+                    const setImages = [];
+                    for (const url of artworkSet) {
+                        try {
+                            if (url.match(/\.(png|jpg|jpeg|gif|webp)$/i)) {
                                 setImages.push({
-                                    name: data.name,
-                                    image: data.image_url
+                                    name: `Artwork ${metadata.length + 1}`,
+                                    image: url
                                 });
+                            } else {
+                                const response = await fetch(url);
+                                if (response.ok) {
+                                    const data = await response.json();
+                                    setImages.push({
+                                        name: data.name,
+                                        image: data.image_url
+                                    });
+                                }
                             }
+                        } catch (e) {
+                            console.warn('Failed to load artwork:', url);
                         }
-                    } catch (e) {
-                        console.warn('Failed to load artwork:', url);
+                    }
+                    if (setImages.length === 3) {
+                        metadata.push(setImages);
                     }
                 }
-                if (setImages.length === 3) {
-                    metadata.push(setImages);
+
+                if (metadata.length === expectedCount) {
+                    return metadata;
                 }
+
+                console.warn(`Only loaded ${metadata.length}/${expectedCount} artwork sets, retrying in 5s...`);
+                loadingEl.textContent = `Loading artworks... (${metadata.length}/${expectedCount})`;
+                await new Promise(resolve => setTimeout(resolve, 5000));
             }
-            return metadata;
         }
 
         // Build reverse lookup: collection number → artifact index
@@ -254,6 +266,9 @@
             const artworkSet = artworkMetadata[actualIndex];
             if (!artworkSet || artworkSet.length !== 3) return;
 
+            // Increment load ID so stale async loads are discarded
+            const loadId = ++currentLoadId;
+
             canvases.forEach((canvas, i) => {
                 const artwork = artworkSet[i];
                 if (!artwork || !artwork.image) return;
@@ -262,6 +277,7 @@
                 img.crossOrigin = 'anonymous';
                 img.src = artwork.image;
                 img.onload = () => {
+                    if (loadId !== currentLoadId) return; // Stale load, discard
                     currentImages[i] = img;
                     contexts[i].drawImage(img, 0, 0, canvas.width, canvas.height);
 

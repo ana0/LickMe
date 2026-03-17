@@ -123,8 +123,10 @@
         let artworkMetadata = []; // Loaded from API
         let displayOrder = []; // Shuffled indices synced from Firebase
         let currentImage = null;
+        let currentLoadId = 0;
         let isMaster = false;
         let masterCheckDone = false;
+        let lastArtworkChangeTime = Date.now();
 
         // Fisher-Yates shuffle
         function shuffleArray(arr) {
@@ -166,36 +168,47 @@
         
         // Load artwork metadata - each set is a triptych
         async function loadArtworkMetadata() {
-            const metadata = [];
-            
-            for (const artworkSet of CONFIG.ARTWORK_SETS) {
-                const setImages = [];
-                for (const url of artworkSet) {
-                    try {
-                        if (url.match(/\.(png|jpg|jpeg|gif|webp)$/i)) {
-                            setImages.push({
-                                name: `Artwork ${metadata.length + 1}`,
-                                image: url
-                            });
-                        } else {
-                            const response = await fetch(url);
-                            if (response.ok) {
-                                const data = await response.json();
+            const expectedCount = CONFIG.ARTWORK_SETS.length;
+
+            while (true) {
+                const metadata = [];
+
+                for (const artworkSet of CONFIG.ARTWORK_SETS) {
+                    const setImages = [];
+                    for (const url of artworkSet) {
+                        try {
+                            if (url.match(/\.(png|jpg|jpeg|gif|webp)$/i)) {
                                 setImages.push({
-                                    name: data.name,
-                                    image: data.image_url
+                                    name: `Artwork ${metadata.length + 1}`,
+                                    image: url
                                 });
+                            } else {
+                                const response = await fetch(url);
+                                if (response.ok) {
+                                    const data = await response.json();
+                                    setImages.push({
+                                        name: data.name,
+                                        image: data.image_url
+                                    });
+                                }
                             }
+                        } catch (e) {
+                            console.warn('Failed to load artwork:', url);
                         }
-                    } catch (e) {
-                        console.warn('Failed to load artwork:', url);
+                    }
+                    if (setImages.length === 3) {
+                        metadata.push(setImages);
                     }
                 }
-                if (setImages.length === 3) {
-                    metadata.push(setImages);
+
+                if (metadata.length === expectedCount) {
+                    return metadata;
                 }
+
+                console.warn(`Only loaded ${metadata.length}/${expectedCount} artwork sets, retrying in 5s...`);
+                statusEl.textContent = `Loading artworks... (${metadata.length}/${expectedCount})`;
+                await new Promise(resolve => setTimeout(resolve, 5000));
             }
-            return metadata;
         }
 
         // Draw the zoomed viewport portion of the current image
@@ -221,11 +234,15 @@
             const artwork = artworkSet[screenConfig.imageIndex];
             if (!artwork || !artwork.image) return;
 
+            // Increment load ID so stale async loads are discarded
+            const loadId = ++currentLoadId;
+
             // Load image for canvas overlay
             const img = new Image();
             img.crossOrigin = 'anonymous';
             img.src = artwork.image;
             img.onload = () => {
+                if (loadId !== currentLoadId) return; // Stale load, discard
                 currentImage = img;
                 // Draw zoomed viewport portion
                 drawZoomedImage();
@@ -763,13 +780,38 @@
             }
         }
 
+        // Advance to next artwork via Firebase
+        function cycleToArtwork(nextIndex) {
+            currentArtworkRef.set({
+                index: nextIndex,
+                lastChanged: firebase.database.ServerValue.TIMESTAMP
+            });
+
+            // Clear touches in Firebase
+            database.ref('screens/screen1/touches').remove();
+            database.ref('screens/screen2/touches').remove();
+            database.ref('screens/screen3/touches').remove();
+            database.ref('screens/screen4/touches').remove();
+
+            lastArtworkChangeTime = Date.now();
+        }
+
         function startMasterCycle() {
             let lastEventId = null;
             let isFirstPoll = true;
+            const AUTO_CYCLE_MS = 10 * 60 * 1000; // 10 minutes
 
             // Poll for new sale events
             setInterval(async () => {
                 if (!isMaster || artworkMetadata.length === 0) return;
+
+                // Auto-cycle if no change for 10 minutes
+                if (Date.now() - lastArtworkChangeTime >= AUTO_CYCLE_MS) {
+                    console.log('AUTO-CYCLE: No artwork change for 10 minutes, advancing...');
+                    const nextIndex = (currentArtworkIndex + 1) % artworkMetadata.length;
+                    cycleToArtwork(nextIndex);
+                    return;
+                }
 
                 const latestEvent = await getLatestSaleEvent();
                 if (!latestEvent) return;
@@ -777,33 +819,21 @@
                 // Initialize tracking on first poll
                 if (isFirstPoll) {
                     lastEventId = latestEvent.id;
-                    console.log('🎨 Starting artwork cycling on sales. Watching for new events...');
+                    console.log('Starting artwork cycling on sales. Watching for new events...');
                     isFirstPoll = false;
                     return;
                 }
 
                 // Check if this is a new sale event (different id)
                 if (latestEvent.id !== lastEventId) {
-                    console.log('🔔 NEW SALE DETECTED! Switching artwork...');
+                    console.log('NEW SALE DETECTED! Switching artwork...');
                     console.log('   Type:', latestEvent.marketplace_event_type);
                     console.log('   Price:', latestEvent.price_xtz, 'XTZ');
                     console.log('   Event ID:', latestEvent.id);
 
                     const nextIndex = (currentArtworkIndex + 1) % artworkMetadata.length;
+                    cycleToArtwork(nextIndex);
 
-                    // Update Firebase (this triggers change for all screens)
-                    currentArtworkRef.set({
-                        index: nextIndex,
-                        lastChanged: firebase.database.ServerValue.TIMESTAMP
-                    });
-
-                    // Clear touches in Firebase
-                    database.ref('screens/screen1/touches').remove();
-                    database.ref('screens/screen2/touches').remove();
-                    database.ref('screens/screen3/touches').remove();
-                    database.ref('screens/screen4/touches').remove();
-
-                    // Update last known event
                     lastEventId = latestEvent.id;
                 }
 
@@ -816,8 +846,10 @@
             currentArtworkRef.on('value', (snapshot) => {
                 const data = snapshot.val();
                 if (data && typeof data.index === 'number') {
-                    if (data.index !== currentArtworkIndex) {
-                        currentArtworkIndex = data.index;
+                    const safeIndex = data.index % Math.max(1, artworkMetadata.length);
+                    if (safeIndex !== currentArtworkIndex) {
+                        currentArtworkIndex = safeIndex;
+                        lastArtworkChangeTime = Date.now();
                         clearAllPixels();
                         loadArtworkImage(currentArtworkIndex);
                     }
